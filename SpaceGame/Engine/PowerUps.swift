@@ -123,22 +123,30 @@ extension GameScene {
         setActivePowerUpLabel("Shield")
 
         // alte Aura entfernen, falls noch vorhanden
+        shieldNode?.removeAllActions()
         shieldNode?.removeFromParent()
         shieldNode = nil
 
-        // 🔵 Schild-Aura – HIER den Asset-Namen für dein Schildbild eintragen
         let shieldTexture = SKTexture(imageNamed: "ShieldAura") // <-- dein Schild-Asset
 
         let aura: SKSpriteNode
+        var baseScale: CGFloat = 1.0
+
         if shieldTexture.size() != .zero {
             aura = SKSpriteNode(texture: shieldTexture)
 
             // Schild etwas größer als das Schiff
-            let desiredDiameter = max(ship.size.width, ship.size.height) * 15
+            let desiredDiameter = max(ship.size.width, ship.size.height) * 16.0
             let baseSize = max(shieldTexture.size().width, shieldTexture.size().height)
-            let scale = desiredDiameter / baseSize
-            aura.setScale(scale)
+            baseScale = desiredDiameter / baseSize
+            aura.setScale(baseScale)
+
             aura.alpha = 0.85
+            aura.color = .cyan
+            aura.colorBlendFactor = 0.6
+
+            // Additive Blend = Neon Glow
+            aura.blendMode = .add
         } else {
             // Fallback, falls das Bild fehlt
             aura = SKSpriteNode(
@@ -146,12 +154,25 @@ extension GameScene {
                 size: CGSize(width: ship.size.width * 1.8,
                              height: ship.size.height * 1.8)
             )
-            aura.alpha = 0.35
+            aura.alpha = 0.5
+            aura.blendMode = .add
         }
 
         aura.zPosition = ship.zPosition - 1
-        aura.position = .zero          // als Kind vom Schiff → zentriert
+        aura.position = .zero
         aura.name = "shieldAura"
+
+        // 🔁 Neon-Puls: leicht atmen / flackern
+        let pulseUp = SKAction.group([
+            SKAction.scale(to: baseScale * 1.06, duration: 0.35),
+            SKAction.fadeAlpha(to: 1.0, duration: 0.35)
+        ])
+        let pulseDown = SKAction.group([
+            SKAction.scale(to: baseScale * 0.97, duration: 0.35),
+            SKAction.fadeAlpha(to: 0.7, duration: 0.35)
+        ])
+        let pulse = SKAction.sequence([pulseUp, pulseDown])
+        aura.run(SKAction.repeatForever(pulse), withKey: "shieldPulse")
 
         ship.addChild(aura)
         shieldNode = aura

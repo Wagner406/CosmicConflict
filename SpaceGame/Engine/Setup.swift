@@ -160,7 +160,6 @@ extension GameScene {
 
         playerShip.physicsBody?.categoryBitMask = PhysicsCategory.player
         playerShip.physicsBody?.collisionBitMask = PhysicsCategory.wall | PhysicsCategory.enemy
-        // Spieler meldet Treffer mit EnemyBullet + Enemy + PowerUp
         playerShip.physicsBody?.contactTestBitMask =
             PhysicsCategory.enemyBullet | PhysicsCategory.enemy | PhysicsCategory.powerUp
 

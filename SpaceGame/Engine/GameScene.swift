@@ -23,7 +23,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     /// Callback, um nach Level-Ende zurück ins Menü zu springen
     var onLevelCompleted: (() -> Void)?
-    
+
     // MARK: - Properties
 
     var playerShip: SKSpriteNode!
@@ -37,6 +37,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     var currentDirection: TankDirection?
     var lastUpdateTime: TimeInterval = 0
+
+    /// Zeitstempel für Thruster-Partikel, damit wir nicht zu viele spawnen
+    var lastThrusterParticleTime: TimeInterval = 0
 
     let moveSpeed: CGFloat = 400      // Spieler-Bewegung
     let rotateSpeed: CGFloat = 4      // Spieler-Rotation
@@ -286,6 +289,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             playerShip.position = CGPoint(x: clampedX, y: clampedY)
         }
 
+        // Thruster-Partikel hinter dem Schiff spawnen
+        spawnThrusterParticle(currentTime: currentTime)
+
         // Verfolger-AI für ALLE Gegner-Schiffe
         updateChaser(deltaTime: deltaTime)
 
@@ -309,6 +315,61 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             handleEnemyWaveSpawning(currentTime: currentTime)
         }
         // Boss-Logik könntest du später hier ergänzen (level.type == .boss)
+    }
+
+    /// Spawnt einen einzelnen gelben „Thruster-Partikel“ hinter dem Schiff
+    func spawnThrusterParticle(currentTime: TimeInterval) {
+        guard let ship = playerShip else { return }
+
+        // Max. ~30 Partikel pro Sekunde
+        if currentTime - lastThrusterParticleTime < 0.03 {
+            return
+        }
+        lastThrusterParticleTime = currentTime
+
+        let angle = ship.zRotation
+
+        // Vorwärts-Richtung (-sin, cos) → nach hinten drehen
+        let backX = sin(angle)
+        let backY = -cos(angle)
+
+        // Basis-Punkt direkt hinter dem Schiff
+        let distanceBehind: CGFloat = ship.size.height * 0.6
+        let baseX = ship.position.x + backX * distanceBehind
+        let baseY = ship.position.y + backY * distanceBehind
+
+        // zufälliger Offset, damit es nicht zu „sauber“ ist
+        let jitterX = CGFloat.random(in: -6...6)
+        let jitterY = CGFloat.random(in: -3...3)
+
+        let particleSize = ship.size.width * 0.18
+        let particle = SKSpriteNode(
+            color: .yellow,
+            size: CGSize(width: particleSize, height: particleSize)
+        )
+
+        particle.position = CGPoint(x: baseX + jitterX, y: baseY + jitterY)
+        particle.zPosition = ship.zPosition - 1
+        particle.alpha = 0.9
+        particle.blendMode = .add   // Neon-Glow
+
+        addChild(particle)
+
+        // Partikel driftet noch weiter nach hinten
+        let driftDistance: CGFloat = ship.size.height * 0.3
+        let move = SKAction.moveBy(
+            x: backX * driftDistance,
+            y: backY * driftDistance,
+            duration: 0.35
+        )
+
+        let fade  = SKAction.fadeOut(withDuration: 0.35)
+        let scale = SKAction.scale(to: 0.1, duration: 0.35)
+
+        let group  = SKAction.group([move, fade, scale])
+        let finish = SKAction.removeFromParent()
+
+        particle.run(.sequence([group, finish]))
     }
 
     // MARK: - Schaden am Spieler
