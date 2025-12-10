@@ -72,6 +72,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     var spaceBackground: SKSpriteNode?
     /// Sternen-Layer innerhalb des Levels
     var starFieldNode: SKNode?
+    /// Gaswolken-Layer um die nicht-spielbare Welt
+    var gasCloudLayer: SKNode?
 
     // Spieler-HP / Runden
     var playerMaxHP: Int = 100
@@ -142,6 +144,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
         setupBackground()
         setupLevel()        // nutzt jetzt LevelFactory und GameLevel + Sterne
+        setupToxicGasClouds()
         setupEnemies()      // Start-Asteroiden, evtl. später Boss-Setup
         setupPlayerShip()
         setupCamera()       // ruft auch setupHUD() auf

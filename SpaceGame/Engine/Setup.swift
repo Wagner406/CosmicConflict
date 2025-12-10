@@ -101,6 +101,7 @@ extension GameScene {
 
         if levelNode != nil {
             spawnLevelStars()
+            setupToxicGasClouds()
         }
     }
 
@@ -239,6 +240,201 @@ extension GameScene {
         // ❗ jetzt im Star-Container, nicht direkt im LevelNode
         starContainer.addChild(star)
         star.run(.sequence([group, .removeFromParent()]))
+    }
+    
+    // MARK: - Giftige Gaswolken um die spielbare Map
+
+    func setupToxicGasClouds() {
+        guard let levelNode = levelNode else { return }
+
+        // Alte Gas-Nodes entfernen
+        childNode(withName: "ToxicGas")?.removeFromParent()
+
+        let gasContainer = SKNode()
+        gasContainer.name = "ToxicGas"
+        gasContainer.zPosition = 2      // über Background, unter Gameplay
+        addChild(gasContainer)
+
+        let levelFrame = levelNode.frame
+
+        // ➜ Abstand & Spread wie von dir gewählt
+        let margin: CGFloat     = 100      // Abstand zur spielbaren Map
+        let extraSpread: CGFloat = 50      // wie weit die Wolken nach außen streuen dürfen
+
+        // NEU: wie viele Reihen & Abstände zwischen den Reihen
+        let rowCount = 3
+        let rowSpacing: CGFloat = 200
+
+        // Texturen laden
+        var textures: [SKTexture] = [
+            SKTexture(imageNamed: "ToxicCloud1"),
+            SKTexture(imageNamed: "ToxicCloud2"),
+            SKTexture(imageNamed: "ToxicCloud3")
+        ].filter { $0.size() != .zero }
+
+        if textures.isEmpty { return }
+
+        func addCloud(at position: CGPoint, bigger: Bool = false) {
+            let tex = textures.randomElement()!
+            let cloud = SKSpriteNode(texture: tex)
+
+            // Größe
+            let base = min(levelFrame.width, levelFrame.height)
+            let baseFactor: ClosedRange<CGFloat> = bigger ? 0.45...0.60 : 0.32...0.45
+            let desiredWidth = base * CGFloat.random(in: baseFactor)
+            let scale = desiredWidth / tex.size().width
+            cloud.setScale(scale)
+
+            cloud.position = position
+            cloud.zPosition = 0
+            cloud.alpha = 0.85
+
+            // giftgrün einfärben + leichtes Glow
+            cloud.color = SKColor(red: 0.1, green: 1.0, blue: 0.3, alpha: 1.0)
+            cloud.colorBlendFactor = 0.9
+            cloud.blendMode = .screen   // stärkeres Leuchten
+
+            // leichtes „Atmen“ der Wolke (Puls)
+            let breathe = SKAction.sequence([
+                SKAction.group([
+                    SKAction.fadeAlpha(to: 0.6, duration: 1.2),
+                    SKAction.scale(to: CGFloat.random(in: 0.96...1.04), duration: 1.2)
+                ]),
+                SKAction.group([
+                    SKAction.fadeAlpha(to: 0.9, duration: 1.2),
+                    SKAction.scale(to: 1.0, duration: 1.2)
+                ])
+            ])
+            cloud.run(.repeatForever(breathe))
+
+            // ➜ seitliches Driften OHNE Gesamtverschiebung:
+            let maxDrift: CGFloat = 18
+            let dx = CGFloat.random(in: -maxDrift...maxDrift)
+            let drift = SKAction.sequence([
+                SKAction.moveBy(x: dx, y: 0, duration: 3.0),
+                SKAction.moveBy(x: -dx, y: 0, duration: 3.0)
+            ])
+            cloud.run(.repeatForever(drift))
+
+            gasContainer.addChild(cloud)
+        }
+
+        let cloudsPerSide = 25
+
+        // TOP – 3 Reihen oberhalb der Map
+        for row in 0..<rowCount {
+            let baseY = levelFrame.maxY + margin + CGFloat(row) * rowSpacing
+            for i in 0..<cloudsPerSide {
+                let t = (CGFloat(i) + 0.5) / CGFloat(cloudsPerSide)
+                let x = levelFrame.minX + t * levelFrame.width
+                let y = baseY + CGFloat.random(in: 0...extraSpread)
+                addCloud(at: CGPoint(x: x, y: y))
+            }
+        }
+
+        // BOTTOM – 3 Reihen unterhalb der Map
+        for row in 0..<rowCount {
+            let baseY = levelFrame.minY - margin - CGFloat(row) * rowSpacing
+            for i in 0..<cloudsPerSide {
+                let t = (CGFloat(i) + 0.5) / CGFloat(cloudsPerSide)
+                let x = levelFrame.minX + t * levelFrame.width
+                let y = baseY - CGFloat.random(in: 0...extraSpread)
+                addCloud(at: CGPoint(x: x, y: y))
+            }
+        }
+
+        // LEFT – 3 Reihen links von der Map
+        for row in 0..<rowCount {
+            let baseX = levelFrame.minX - margin - CGFloat(row) * rowSpacing
+            for i in 0..<cloudsPerSide {
+                let t = (CGFloat(i) + 0.5) / CGFloat(cloudsPerSide)
+                let y = levelFrame.minY + t * levelFrame.height
+                let x = baseX - CGFloat.random(in: 0...extraSpread)
+                addCloud(at: CGPoint(x: x, y: y))
+            }
+        }
+
+        // RIGHT – 3 Reihen rechts von der Map
+        for row in 0..<rowCount {
+            let baseX = levelFrame.maxX + margin + CGFloat(row) * rowSpacing
+            for i in 0..<cloudsPerSide {
+                let t = (CGFloat(i) + 0.5) / CGFloat(cloudsPerSide)
+                let y = levelFrame.minY + t * levelFrame.height
+                let x = baseX + CGFloat.random(in: 0...extraSpread)
+                addCloud(at: CGPoint(x: x, y: y))
+            }
+        }
+
+        // Große Wolken weit in den Ecken (außerhalb der äußersten Reihe)
+        let cornerOffset = margin + CGFloat(rowCount) * rowSpacing + extraSpread
+        addCloud(at: CGPoint(x: levelFrame.minX - cornerOffset,
+                             y: levelFrame.maxY + cornerOffset),
+                 bigger: true)
+        addCloud(at: CGPoint(x: levelFrame.maxX + cornerOffset,
+                             y: levelFrame.maxY + cornerOffset),
+                 bigger: true)
+        addCloud(at: CGPoint(x: levelFrame.minX - cornerOffset,
+                             y: levelFrame.minY - cornerOffset),
+                 bigger: true)
+        addCloud(at: CGPoint(x: levelFrame.maxX + cornerOffset,
+                             y: levelFrame.minY - cornerOffset),
+                 bigger: true)
+        
+        // --- Extra: 3 Reihen pro Ecke für mehr Dichte ---
+
+        let cornerLayers = 3
+        let cornerSpacing: CGFloat = 90  // Abstand zwischen den Reihen
+
+        func addCornerCluster(baseX: CGFloat, baseY: CGFloat) {
+            for layer in 0..<cornerLayers {
+                let offset = CGFloat(layer) * cornerSpacing
+
+                // kleine zufällige Variation pro Wolke
+                let jitterX = CGFloat.random(in: -40...40)
+                let jitterY = CGFloat.random(in: -40...40)
+
+                addCloud(at: CGPoint(
+                    x: baseX + jitterX + offset,
+                    y: baseY + jitterY + offset
+                ))
+
+                addCloud(at: CGPoint(
+                    x: baseX + jitterX - offset,
+                    y: baseY + jitterY + offset
+                ))
+
+                addCloud(at: CGPoint(
+                    x: baseX + jitterX + offset,
+                    y: baseY + jitterY - offset
+                ))
+
+                addCloud(at: CGPoint(
+                    x: baseX + jitterX - offset,
+                    y: baseY + jitterY - offset
+                ))
+            }
+        }
+
+        // jetzt die 4 Ecken "verdicken"
+        addCornerCluster(
+            baseX: levelFrame.minX - margin - extraSpread,
+            baseY: levelFrame.maxY + margin + extraSpread
+        )
+
+        addCornerCluster(
+            baseX: levelFrame.maxX + margin + extraSpread,
+            baseY: levelFrame.maxY + margin + extraSpread
+        )
+
+        addCornerCluster(
+            baseX: levelFrame.minX - margin - extraSpread,
+            baseY: levelFrame.minY - margin - extraSpread
+        )
+
+        addCornerCluster(
+            baseX: levelFrame.maxX + margin + extraSpread,
+            baseY: levelFrame.minY - margin - extraSpread
+        )
     }
 
     // MARK: - Spieler-Schiff
