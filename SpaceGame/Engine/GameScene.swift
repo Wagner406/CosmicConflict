@@ -382,11 +382,14 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // MARK: Partikel
 
-    /// Spawnt einen einzelnen gelben „Thruster-Partikel“ hinter dem Schiff
+    /// Neuer Thruster: runder Glow-Kern + Funken-Streaks hinter dem Spieler
+    // MARK: Partikel
+
+    /// Neuer Thruster: runder Glow-Kern + Funken-Streaks hinter dem Spieler
     func spawnThrusterParticle(currentTime: TimeInterval) {
         guard let ship = playerShip else { return }
 
-        // Max. ~30 Partikel pro Sekunde
+        // Max. ~30 Bursts pro Sekunde
         if currentTime - lastThrusterParticleTime < 0.03 {
             return
         }
@@ -394,53 +397,85 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
         let angle = ship.zRotation
 
-        // Vorwärts-Richtung (-sin, cos) → nach hinten drehen
-        let backX = sin(angle)
-        let backY = -cos(angle)
+        // Deine Vorwärtsrichtung ist ( -sin,  cos ) → entspricht Winkel angle + π/2
+        let forwardAngle = angle + .pi / 2
+        let backAngle    = forwardAngle + .pi   // genau nach hinten
 
-        // Basis-Punkt direkt hinter dem Schiff
+        // Punkt hinter dem Schiff
         let distanceBehind: CGFloat = ship.size.height * 0.6
-        let baseX = ship.position.x + backX * distanceBehind
-        let baseY = ship.position.y + backY * distanceBehind
+        let baseX = ship.position.x + cos(backAngle) * distanceBehind
+        let baseY = ship.position.y + sin(backAngle) * distanceBehind
+        let basePos = CGPoint(x: baseX, y: baseY)
 
-        // zufälliger Offset, damit es nicht zu „sauber“ ist
-        let jitterX = CGFloat.random(in: -6...6)
-        let jitterY = CGFloat.random(in: -3...3)
+        // --- 1) Runder, glühender Kern ---
+        let coreRadius = ship.size.width * 0.11
 
-        let particleSize = ship.size.width * 0.18
-        let particle = SKSpriteNode(
-            color: .yellow,
-            size: CGSize(width: particleSize, height: particleSize)
+        let core = SKShapeNode(circleOfRadius: coreRadius)
+        core.position = basePos
+        core.zPosition = ship.zPosition - 1
+        core.fillColor = .white
+        core.strokeColor = .clear
+        core.glowWidth = coreRadius * 1.6
+        core.lineWidth = 0
+        core.alpha = 0.95
+        core.blendMode = .add
+        addChild(core)
+
+        let coreDuration: TimeInterval = 0.18
+        let coreMove = SKAction.moveBy(
+            x: cos(backAngle) * ship.size.height * 0.25,
+            y: sin(backAngle) * ship.size.height * 0.25,
+            duration: coreDuration
         )
+        let coreFade  = SKAction.fadeOut(withDuration: coreDuration)
+        let coreScale = SKAction.scale(to: 0.25, duration: coreDuration)
+        let coreGroup = SKAction.group([coreMove, coreFade, coreScale])
+        core.run(.sequence([coreGroup, .removeFromParent()]))
 
-        particle.position = CGPoint(x: baseX + jitterX, y: baseY + jitterY)
-        particle.zPosition = ship.zPosition - 1
-        particle.alpha = 0.9
-        particle.blendMode = .add   // Neon-Glow
+        // --- 2) Funken-Streaks hinter dem Schiff ---
+        let sparkCount = 3
 
-        addChild(particle)
+        for _ in 0..<sparkCount {
+            let length = ship.size.width * CGFloat.random(in: 0.24...0.34)
+            let thickness = length * 0.22
 
-        // Partikel driftet noch weiter nach hinten
-        let driftDistance: CGFloat = ship.size.height * 0.3
-        let move = SKAction.moveBy(
-            x: backX * driftDistance,
-            y: backY * driftDistance,
-            duration: 0.35
-        )
+            let spark = SKSpriteNode(
+                color: .white,
+                size: CGSize(width: length, height: thickness)
+            )
 
-        let fade  = SKAction.fadeOut(withDuration: 0.35)
-        let scale = SKAction.scale(to: 0.1, duration: 0.35)
+            spark.position = basePos
+            spark.zPosition = ship.zPosition - 1
+            spark.alpha = 0.95
+            spark.blendMode = .add
+            spark.anchorPoint = CGPoint(x: 0.0, y: 0.5)
 
-        let group  = SKAction.group([move, fade, scale])
-        let finish = SKAction.removeFromParent()
+            // leicht jitter um die genaue Gegenrichtung
+            let jitter = CGFloat.random(in: -(.pi/10)...(.pi/10))
+            let dirAngle = backAngle + jitter
+            spark.zRotation = dirAngle
 
-        particle.run(.sequence([group, finish]))
+            let distance = ship.size.height * CGFloat.random(in: 0.35...0.7)
+            let dx = cos(dirAngle) * distance
+            let dy = sin(dirAngle) * distance
+
+            let duration: TimeInterval = 0.2
+
+            let move  = SKAction.moveBy(x: dx, y: dy, duration: duration)
+            let fade  = SKAction.fadeOut(withDuration: duration)
+            let scale = SKAction.scaleX(to: 0.25, duration: duration)
+
+            let group  = SKAction.group([move, fade, scale])
+            spark.run(.sequence([group, .removeFromParent()]))
+
+            addChild(spark)
+        }
     }
 
-    /// Thruster-Partikel für alle Gegner-Schiffe (gleicher Look wie Spieler)
+    /// Neuer Thruster für Gegner: etwas dezenter, aber gleicher Stil
     func spawnEnemyThrusterParticles(currentTime: TimeInterval) {
-        // etwas seltener als Spieler, damit es nicht zu viel wird
-        if currentTime - lastEnemyThrusterParticleTime < 0.04 {
+        // etwas seltener als beim Spieler
+        if currentTime - lastEnemyThrusterParticleTime < 0.045 {
             return
         }
         lastEnemyThrusterParticleTime = currentTime
@@ -448,42 +483,76 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         for enemy in enemyShips {
             let angle = enemy.zRotation
 
-            // Richtung „nach hinten“
-            let backX = sin(angle)
-            let backY = -cos(angle)
+            let forwardAngle = angle + .pi / 2
+            let backAngle    = forwardAngle + .pi
 
             let distanceBehind: CGFloat = enemy.size.height * 0.6
-            let baseX = enemy.position.x + backX * distanceBehind
-            let baseY = enemy.position.y + backY * distanceBehind
+            let baseX = enemy.position.x + cos(backAngle) * distanceBehind
+            let baseY = enemy.position.y + sin(backAngle) * distanceBehind
+            let basePos = CGPoint(x: baseX, y: baseY)
 
-            let jitterX = CGFloat.random(in: -5...5)
-            let jitterY = CGFloat.random(in: -3...3)
+            // --- 1) kleiner Kern ---
+            let coreRadius = enemy.size.width * 0.09
 
-            let particleSize = enemy.size.width * 0.16
-            let particle = SKSpriteNode(
-                color: .yellow,
-                size: CGSize(width: particleSize, height: particleSize)
+            let core = SKShapeNode(circleOfRadius: coreRadius)
+            core.position = basePos
+            core.zPosition = enemy.zPosition - 1
+            core.fillColor = .white
+            core.strokeColor = .clear
+            core.glowWidth = coreRadius * 1.4
+            core.lineWidth = 0
+            core.alpha = 0.85
+            core.blendMode = .add
+            addChild(core)
+
+            let coreDuration: TimeInterval = 0.16
+            let coreMove = SKAction.moveBy(
+                x: cos(backAngle) * enemy.size.height * 0.22,
+                y: sin(backAngle) * enemy.size.height * 0.22,
+                duration: coreDuration
             )
+            let coreFade  = SKAction.fadeOut(withDuration: coreDuration)
+            let coreScale = SKAction.scale(to: 0.25, duration: coreDuration)
+            let coreGroup = SKAction.group([coreMove, coreFade, coreScale])
+            core.run(.sequence([coreGroup, .removeFromParent()]))
 
-            particle.position = CGPoint(x: baseX + jitterX, y: baseY + jitterY)
-            particle.zPosition = enemy.zPosition - 1
-            particle.alpha = 0.85
-            particle.blendMode = .add
+            // --- 2) Funken-Streaks ---
+            let sparkCount = 2
 
-            addChild(particle)
+            for _ in 0..<sparkCount {
+                let length = enemy.size.width * CGFloat.random(in: 0.20...0.30)
+                let thickness = length * 0.22
 
-            let driftDistance: CGFloat = enemy.size.height * 0.25
-            let move = SKAction.moveBy(
-                x: backX * driftDistance,
-                y: backY * driftDistance,
-                duration: 0.3
-            )
+                let spark = SKSpriteNode(
+                    color: .white,
+                    size: CGSize(width: length, height: thickness)
+                )
 
-            let fade  = SKAction.fadeOut(withDuration: 0.3)
-            let scale = SKAction.scale(to: 0.1, duration: 0.3)
-            let group = SKAction.group([move, fade, scale])
+                spark.position = basePos
+                spark.zPosition = enemy.zPosition - 1
+                spark.alpha = 0.9
+                spark.blendMode = .add
+                spark.anchorPoint = CGPoint(x: 0.0, y: 0.5)
 
-            particle.run(.sequence([group, .removeFromParent()]))
+                let jitter = CGFloat.random(in: -(.pi/12)...(.pi/12))
+                let dirAngle = backAngle + jitter
+                spark.zRotation = dirAngle
+
+                let distance = enemy.size.height * CGFloat.random(in: 0.3...0.55)
+                let dx = cos(dirAngle) * distance
+                let dy = sin(dirAngle) * distance
+
+                let duration: TimeInterval = 0.18
+
+                let move  = SKAction.moveBy(x: dx, y: dy, duration: duration)
+                let fade  = SKAction.fadeOut(withDuration: duration)
+                let scale = SKAction.scaleX(to: 0.25, duration: duration)
+
+                let group = SKAction.group([move, fade, scale])
+                spark.run(.sequence([group, .removeFromParent()]))
+
+                addChild(spark)
+            }
         }
     }
 
