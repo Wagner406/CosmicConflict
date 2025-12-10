@@ -436,6 +436,111 @@ extension GameScene {
             baseY: levelFrame.minY - margin - extraSpread
         )
     }
+    
+    // MARK: - Tiefen-Parallax-Nebula
+
+    /// Große, weiche Nebelwolken im Hintergrund, die per Parallax verschoben werden
+    func setupParallaxNebulaLayer() {
+        nebulaLayer?.removeFromParent()
+        guard let levelNode = levelNode else { return }
+
+        let container = SKNode()
+        container.name = "ParallaxNebula"
+        // über Background (-100), aber unter Level/Stars/Gameplay
+        container.zPosition = 3
+        addChild(container)
+        nebulaLayer = container
+
+        let levelFrame = levelNode.frame
+        let width  = levelFrame.width
+        let height = levelFrame.height
+
+        // vorhandene ToxicCloud-Assets als Nebeltexturen benutzen
+        var textures: [SKTexture] = [
+            SKTexture(imageNamed: "ToxicCloud1"),
+            SKTexture(imageNamed: "ToxicCloud2"),
+            SKTexture(imageNamed: "ToxicCloud3")
+        ].filter { $0.size() != .zero }
+
+        if textures.isEmpty { return }
+
+        // Anzahl Nebel-Flecken
+        let baseArea = width * height
+        let density: CGFloat = 1.0 / 350000.0
+        var count = Int(baseArea * density)
+        count = max(5, min(count, 10))
+
+        let baseSize = min(width, height)
+
+        for _ in 0..<count {
+            guard let tex = textures.randomElement() else { continue }
+
+            let nebula = SKSpriteNode(texture: tex)
+
+            // Groß & weich
+            let desiredWidth = baseSize * CGFloat.random(in: 0.6...0.9)
+            let scale = desiredWidth / tex.size().width
+            nebula.setScale(scale)
+
+            // Position irgendwo in der spielbaren Fläche
+            let x = CGFloat.random(in: levelFrame.minX ... levelFrame.maxX)
+            let y = CGFloat.random(in: levelFrame.minY ... levelFrame.maxY)
+            nebula.position = CGPoint(x: x, y: y)
+
+            // Blau/Violett, sehr weich, transparenter als Toxic-Gas am Rand
+            nebula.color = SKColor(red: CGFloat.random(in: 0.3...0.5),
+                                   green: CGFloat.random(in: 0.5...0.8),
+                                   blue: 1.0,
+                                   alpha: 1.0)
+            nebula.colorBlendFactor = 0.85
+            nebula.alpha = 0.28
+            nebula.blendMode = .add
+            nebula.zPosition = 0
+
+            // langsames „Atmen“
+            let pulse = SKAction.sequence([
+                SKAction.group([
+                    SKAction.fadeAlpha(to: 0.20, duration: 3.0),
+                    SKAction.scale(to: scale * CGFloat.random(in: 0.97...1.03), duration: 3.0)
+                ]),
+                SKAction.group([
+                    SKAction.fadeAlpha(to: 0.32, duration: 3.0),
+                    SKAction.scale(to: scale, duration: 3.0)
+                ])
+            ])
+            nebula.run(.repeatForever(pulse))
+
+            // ganz langsame Eigenrotation
+            let rotAngle = CGFloat.random(in: -0.15...0.15)
+            let rotDur   = TimeInterval.random(in: 20.0...35.0)
+            let rotate   = SKAction.rotate(byAngle: rotAngle, duration: rotDur)
+            nebula.run(.repeatForever(rotate))
+
+            container.addChild(nebula)
+        }
+
+        // Startposition: neutral in der Mitte
+        container.position = .zero
+    }
+    
+    /// Verschiebt den Nebel etwas langsamer als die Kamera → Parallax-Effekt
+    func updateNebulaParallax() {
+        guard let cam = camera, let nebulaLayer = nebulaLayer else { return }
+
+        // Szenen-Mitte als Referenz
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+
+        let dx = cam.position.x - center.x
+        let dy = cam.position.y - center.y
+
+        // (1 - factor): wie stark der Nebel entgegenläuft
+        let compensation: CGFloat = 1.0 - nebulaParallaxFactor
+
+        nebulaLayer.position = CGPoint(
+            x: -dx * compensation,
+            y: -dy * compensation
+        )
+    }
 
     // MARK: - Spieler-Schiff
 

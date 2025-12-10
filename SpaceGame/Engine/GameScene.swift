@@ -74,6 +74,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     var starFieldNode: SKNode?
     /// Gaswolken-Layer um die nicht-spielbare Welt
     var gasCloudLayer: SKNode?
+    /// Parallax-Nebula-Layer (Dekoration)
+    var nebulaLayer: SKNode?
+    let nebulaParallaxFactor: CGFloat = 0.35   // 0 = klebt, 1 = bewegt sich wie Gameplay
 
     // Spieler-HP / Runden
     var playerMaxHP: Int = 100
@@ -145,6 +148,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         setupBackground()
         setupLevel()        // nutzt jetzt LevelFactory und GameLevel + Sterne
         setupToxicGasClouds()
+        setupParallaxNebulaLayer()
         setupEnemies()      // Start-Asteroiden, evtl. später Boss-Setup
         setupPlayerShip()
         setupCamera()       // ruft auch setupHUD() auf
@@ -322,6 +326,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Shooting Stars im Hintergrund
         spawnShootingStar(currentTime: currentTime)
+        
+        // Nebel-Parallax an Kamera-Bewegung koppeln
+        updateNebulaParallax()
 
         // Verfolger-AI für ALLE Gegner-Schiffe
         updateChaser(deltaTime: deltaTime)
