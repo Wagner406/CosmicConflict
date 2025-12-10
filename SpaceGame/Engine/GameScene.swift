@@ -41,6 +41,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     /// Zeitstempel für Thruster-Partikel, damit wir nicht zu viele spawnen
     var lastThrusterParticleTime: TimeInterval = 0
 
+    /// Zeitstempel für Thruster-Partikel der Gegner-Schiffe
+    var lastEnemyThrusterParticleTime: TimeInterval = 0
+
+    /// Zeitstempel für Asteroiden-Staub
+    var lastAsteroidParticleTime: TimeInterval = 0
+
+    /// Nächster Zeitpunkt, an dem ein Shooting Star gespawnt werden darf
+    var lastShootingStarTime: TimeInterval = 0
+
     let moveSpeed: CGFloat = 400      // Spieler-Bewegung
     let rotateSpeed: CGFloat = 4      // Spieler-Rotation
 
@@ -61,6 +70,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // Hintergrund
     var spaceBackground: SKSpriteNode?
+    /// Sternen-Layer innerhalb des Levels
+    var starFieldNode: SKNode?
 
     // Spieler-HP / Runden
     var playerMaxHP: Int = 100
@@ -130,7 +141,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
 
         setupBackground()
-        setupLevel()        // nutzt jetzt LevelFactory und GameLevel
+        setupLevel()        // nutzt jetzt LevelFactory und GameLevel + Sterne
         setupEnemies()      // Start-Asteroiden, evtl. später Boss-Setup
         setupPlayerShip()
         setupCamera()       // ruft auch setupHUD() auf
@@ -141,6 +152,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Powerup-Timer initialisieren
         lastPowerUpSpawnTime = 0
+
+        // Shooting Star Timer initialisieren
+        lastShootingStarTime = 0
 
         // Nur bei Wave-Levels Runden starten
         if level.type == .normal && (level.config.rounds?.isEmpty == false) {
@@ -185,14 +199,19 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             updateEnemyHealthBar(for: enemyNode)
 
             if newHP <= 0 {
-                // Ist es ein verfolgenden Gegner-Schiff? → Runde updaten
                 if enemyShips.contains(enemyNode) {
+                    // 🔵 Gegner-Schiff: Explosion abspielen + Runde updaten
                     registerEnemyShipKilled(enemyNode)
+                    playEnemyShipExplosion(
+                        at: enemyNode.position,
+                        zPosition: enemyNode.zPosition
+                    )
+                    enemyNode.removeFromParent()
+                } else {
+                    // 🪨 Asteroid: Zerbrösel-Animation
+                    playAsteroidDestruction(on: enemyNode)
                 }
 
-                let fade = SKAction.fadeOut(withDuration: 0.1)
-                let remove = SKAction.removeFromParent()
-                enemyNode.run(.sequence([fade, remove]))
                 enemies.removeAll { $0 == enemyNode }
             }
         }
@@ -289,8 +308,17 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             playerShip.position = CGPoint(x: clampedX, y: clampedY)
         }
 
-        // Thruster-Partikel hinter dem Schiff spawnen
+        // Thruster-Partikel hinter dem Spieler-Schiff
         spawnThrusterParticle(currentTime: currentTime)
+
+        // Thruster-Partikel hinter allen Gegner-Schiffen
+        spawnEnemyThrusterParticles(currentTime: currentTime)
+
+        // Staub / Schweif hinter fliegenden Asteroiden
+        spawnAsteroidParticles(currentTime: currentTime)
+
+        // Shooting Stars im Hintergrund
+        spawnShootingStar(currentTime: currentTime)
 
         // Verfolger-AI für ALLE Gegner-Schiffe
         updateChaser(deltaTime: deltaTime)
@@ -316,6 +344,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         // Boss-Logik könntest du später hier ergänzen (level.type == .boss)
     }
+
+    // MARK: Partikel
 
     /// Spawnt einen einzelnen gelben „Thruster-Partikel“ hinter dem Schiff
     func spawnThrusterParticle(currentTime: TimeInterval) {
@@ -372,6 +402,330 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         particle.run(.sequence([group, finish]))
     }
 
+    /// Thruster-Partikel für alle Gegner-Schiffe (gleicher Look wie Spieler)
+    func spawnEnemyThrusterParticles(currentTime: TimeInterval) {
+        // etwas seltener als Spieler, damit es nicht zu viel wird
+        if currentTime - lastEnemyThrusterParticleTime < 0.04 {
+            return
+        }
+        lastEnemyThrusterParticleTime = currentTime
+
+        for enemy in enemyShips {
+            let angle = enemy.zRotation
+
+            // Richtung „nach hinten“
+            let backX = sin(angle)
+            let backY = -cos(angle)
+
+            let distanceBehind: CGFloat = enemy.size.height * 0.6
+            let baseX = enemy.position.x + backX * distanceBehind
+            let baseY = enemy.position.y + backY * distanceBehind
+
+            let jitterX = CGFloat.random(in: -5...5)
+            let jitterY = CGFloat.random(in: -3...3)
+
+            let particleSize = enemy.size.width * 0.16
+            let particle = SKSpriteNode(
+                color: .yellow,
+                size: CGSize(width: particleSize, height: particleSize)
+            )
+
+            particle.position = CGPoint(x: baseX + jitterX, y: baseY + jitterY)
+            particle.zPosition = enemy.zPosition - 1
+            particle.alpha = 0.85
+            particle.blendMode = .add
+
+            addChild(particle)
+
+            let driftDistance: CGFloat = enemy.size.height * 0.25
+            let move = SKAction.moveBy(
+                x: backX * driftDistance,
+                y: backY * driftDistance,
+                duration: 0.3
+            )
+
+            let fade  = SKAction.fadeOut(withDuration: 0.3)
+            let scale = SKAction.scale(to: 0.1, duration: 0.3)
+            let group = SKAction.group([move, fade, scale])
+
+            particle.run(.sequence([group, .removeFromParent()]))
+        }
+    }
+
+    /// Staub-Schweif / Staubwolke für Asteroiden (braune Partikel)
+    func spawnAsteroidParticles(currentTime: TimeInterval) {
+        // begrenze Spawn-Rate global für alle Asteroiden
+        if currentTime - lastAsteroidParticleTime < 0.08 {
+            return
+        }
+        lastAsteroidParticleTime = currentTime
+
+        // Alle Gegner, die NICHT in enemyShips sind → Asteroiden
+        for asteroid in enemies where !enemyShips.contains(asteroid) {
+            let baseX = asteroid.position.x
+            let baseY = asteroid.position.y
+
+            // Zufall um den Asteroiden herum
+            let jitterX = CGFloat.random(
+                in: -asteroid.size.width * 0.4 ... asteroid.size.width * 0.4
+            )
+            let jitterY = CGFloat.random(
+                in: -asteroid.size.height * 0.4 ... asteroid.size.height * 0.4
+            )
+
+            let particleSize = asteroid.size.width * 0.20
+
+            // braun/orange wie der Stein
+            let dustColor = SKColor(red: 0.60, green: 0.45, blue: 0.25, alpha: 1.0)
+
+            let particle = SKSpriteNode(
+                color: dustColor,
+                size: CGSize(width: particleSize, height: particleSize)
+            )
+
+            particle.position = CGPoint(x: baseX + jitterX, y: baseY + jitterY)
+            particle.zPosition = asteroid.zPosition - 1
+            particle.alpha = 0.9
+            particle.blendMode = .alpha   // Staub, kein Neon-Glow
+
+            addChild(particle)
+
+            // Staub sinkt leicht nach unten und verschwindet
+            let driftY: CGFloat = -asteroid.size.height * 0.3
+            let move  = SKAction.moveBy(x: 0, y: driftY, duration: 0.6)
+            let fade  = SKAction.fadeOut(withDuration: 0.6)
+            let scale = SKAction.scale(to: 0.1, duration: 0.6)
+
+            let group  = SKAction.group([move, fade, scale])
+            let finish = SKAction.removeFromParent()
+
+            particle.run(.sequence([group, finish]))
+        }
+    }
+
+    /// Zerbrösel-Animation für einen Asteroiden (3x2 Sprite-Sheet)
+    func playAsteroidDestruction(on asteroid: SKSpriteNode) {
+        let sheet = SKTexture(imageNamed: "AstroidDestroyed")
+
+        // Falls das Sheet fehlt → Fallback: nur ausblenden
+        guard sheet.size() != .zero else {
+            let fade = SKAction.fadeOut(withDuration: 0.15)
+            asteroid.run(.sequence([fade, .removeFromParent()]))
+            return
+        }
+
+        let rows = 3
+        let cols = 2
+#if swift(>=5.0)
+        var frames: [SKTexture] = []
+#else
+        var frames = [SKTexture]()
+#endif
+
+        // Reihenfolge: von oben links nach unten rechts
+        for row in 0..<rows {
+            for col in 0..<cols {
+                let originX = CGFloat(col) / CGFloat(cols)
+                let originY = 1.0 - CGFloat(row + 1) / CGFloat(rows)
+
+                let rect = CGRect(
+                    x: originX,
+                    y: originY,
+                    width: 1.0 / CGFloat(cols),
+                    height: 1.0 / CGFloat(rows)
+                )
+
+                let frame = SKTexture(rect: rect, in: sheet)
+                frames.append(frame)
+            }
+        }
+
+        // Physik ausschalten, damit der kaputte Stein nicht mehr kollidiert
+        asteroid.physicsBody = nil
+        asteroid.removeAllActions()
+
+        // Animation
+        let animate = SKAction.animate(with: frames, timePerFrame: 0.05)
+
+        // Parallel langsam ausblenden
+        let fadeOut = SKAction.fadeOut(withDuration: 0.5)
+        let group   = SKAction.group([animate, fadeOut])
+
+        asteroid.run(.sequence([group, .removeFromParent()]))
+
+        // Funken an der Position des Asteroiden
+        spawnExplosionSparks(
+            at: asteroid.position,
+            baseColor: SKColor(red: 0.7, green: 0.5, blue: 0.3, alpha: 1.0),
+            count: 18,
+            zPos: asteroid.zPosition + 1
+        )
+    }
+
+    /// Explosion für Gegner-Schiffe (2x3 Sprite-Sheet, blau)
+    func playEnemyShipExplosion(at position: CGPoint, zPosition: CGFloat) {
+        let sheet = SKTexture(imageNamed: "ExplosionEnemyShip") // Name im Asset-Katalog
+
+        guard sheet.size() != .zero else { return }
+
+        let rows = 2
+        let cols = 3
+#if swift(>=5.0)
+        var frames: [SKTexture] = []
+#else
+        var frames = [SKTexture]()
+#endif
+
+        // von oben links nach unten rechts
+        for row in 0..<rows {
+            for col in 0..<cols {
+                let originX = CGFloat(col) / CGFloat(cols)
+                let originY = 1.0 - CGFloat(row + 1) / CGFloat(rows)
+
+                let rect = CGRect(
+                    x: originX,
+                    y: originY,
+                    width: 1.0 / CGFloat(cols),
+                    height: 1.0 / CGFloat(rows)
+                )
+
+                let frame = SKTexture(rect: rect, in: sheet)
+                frames.append(frame)
+            }
+        }
+
+        // Breite eines Frames im Sheet
+        let frameWidth = sheet.size().width / CGFloat(cols)
+
+        // Explosion etwas größer als die Schiffe
+        let desiredWidth = size.width * 0.3
+        let scale = desiredWidth / frameWidth
+
+        let explosion = SKSpriteNode(texture: frames.first)
+        explosion.setScale(scale)
+        explosion.position = position
+        explosion.zPosition = zPosition + 1
+        explosion.alpha = 1.0
+        explosion.blendMode = .add
+
+        addChild(explosion)
+
+        // 💥 Shockwave-Effekt um die Explosion herum
+        triggerExplosionShockwave(at: position)
+
+        let animate = SKAction.animate(with: frames, timePerFrame: 0.05)
+        let fadeOut = SKAction.fadeOut(withDuration: 0.5)
+        let group   = SKAction.group([animate, fadeOut])
+
+        explosion.run(.sequence([group, .removeFromParent()]))
+
+        // Funken dazu
+        spawnExplosionSparks(at: position,
+                             baseColor: .cyan,   // passt zum blauen Effekt
+                             count: 24,
+                             zPos: 60)
+    }
+
+    /// Kleiner Shockwave-Effekt rund um eine Explosion:
+    /// - Ring, der sich ausdehnt und verblasst
+    /// - kurzer Kamera-Punch / Shake
+    func triggerExplosionShockwave(at position: CGPoint) {
+        // --- 1) Ring-Effekt ---
+        let radius: CGFloat = 80
+
+        let ring = SKShapeNode(circleOfRadius: radius)
+        ring.position = position
+        ring.zPosition = 999   // über allem drüber
+        ring.strokeColor = SKColor.cyan
+        ring.lineWidth = 6
+        ring.glowWidth = 10
+        ring.fillColor = .clear
+        ring.alpha = 0.9
+
+        addChild(ring)
+
+        // Start klein, dann expandieren
+        ring.setScale(0.2)
+
+        let scaleUp = SKAction.scale(to: 1.4, duration: 0.18)
+        let fadeOut = SKAction.fadeOut(withDuration: 0.18)
+        let group   = SKAction.group([scaleUp, fadeOut])
+
+        ring.run(.sequence([group, .removeFromParent()]))
+
+        // --- 2) Kamera-Punch / Minishake ---
+        guard let cam = camera else { return }
+
+        let originalScale = cam.xScale
+        let punchIn  = SKAction.scale(to: originalScale * 0.92, duration: 0.05)
+        let punchOut = SKAction.scale(to: originalScale, duration: 0.12)
+        punchIn.timingMode  = .easeOut
+        punchOut.timingMode = .easeIn
+
+        let punchSequence = SKAction.sequence([punchIn, punchOut])
+
+        // kleines Wackeln
+        let shakeAmount: CGFloat = 8
+        let shakeDuration: TimeInterval = 0.16
+
+        let moveLeft  = SKAction.moveBy(x: -shakeAmount, y: 0, duration: shakeDuration / 4)
+        let moveRight = SKAction.moveBy(x:  shakeAmount * 2, y: 0, duration: shakeDuration / 4)
+        let moveBack  = SKAction.moveBy(x: -shakeAmount, y: 0, duration: shakeDuration / 4)
+        let moveUp    = SKAction.moveBy(x: 0, y: shakeAmount, duration: shakeDuration / 4)
+        let moveDown  = SKAction.moveBy(x: 0, y: -shakeAmount, duration: shakeDuration / 4)
+
+        let shakeSeq = SKAction.sequence([moveLeft, moveRight, moveBack, moveUp, moveDown])
+
+        cam.run(punchSequence)
+        cam.run(shakeSeq)
+    }
+
+    /// Funkensplitter bei einer Explosion
+    func spawnExplosionSparks(at position: CGPoint,
+                              baseColor: SKColor = .yellow,
+                              count: Int = 20,
+                              zPos: CGFloat = 50) {
+        for _ in 0..<count {
+            // zufällige Größe
+            let length = CGFloat.random(in: 14...26)
+            let thickness = CGFloat.random(in: 3...6)
+
+            let spark = SKSpriteNode(
+                color: baseColor,
+                size: CGSize(width: length, height: thickness)
+            )
+
+            spark.position = position
+            spark.zPosition = zPos
+            spark.alpha = 1.0
+            spark.blendMode = .add          // schön leuchtend
+
+            // Anker an einem Ende, damit er „rausfliegt“
+            spark.anchorPoint = CGPoint(x: 0.0, y: 0.5)
+
+            // Zufällige Richtung
+            let angle = CGFloat.random(in: 0 ..< (.pi * 2))
+            spark.zRotation = angle
+
+            // Zufällige Flugweite
+            let distance = CGFloat.random(in: 80...180)
+            let dx = cos(angle) * distance
+            let dy = sin(angle) * distance
+
+            let duration: TimeInterval = 0.35
+
+            let move  = SKAction.moveBy(x: dx, y: dy, duration: duration)
+            let fade  = SKAction.fadeOut(withDuration: duration)
+            let scale = SKAction.scaleX(to: 0.2, duration: duration)
+
+            let group  = SKAction.group([move, fade, scale])
+            let finish = SKAction.removeFromParent()
+
+            spark.run(.sequence([group, finish]))
+            addChild(spark)
+        }
+    }
+    
     // MARK: - Schaden am Spieler
 
     func applyDamageToPlayer(amount: Int) {

@@ -93,12 +93,152 @@ extension GameScene {
     // MARK: - Level
 
     func setupLevel() {
-        // Falls das Level noch nicht gesetzt wurde (Sicherheit), nimm Level 1
         let currentLevel = level ?? GameLevels.level1
         level = currentLevel
 
         levelNode = LevelFactory.makeLevelNode(for: currentLevel, size: size)
         addChild(levelNode)
+
+        if levelNode != nil {
+            spawnLevelStars()
+        }
+    }
+
+    // MARK: - Sterne / Starfield im Level
+
+    /// Erzeugt einen Sternen-Layer innerhalb der spielbaren Map
+    func spawnLevelStars() {
+        // alte Sterne entfernen
+        starFieldNode?.removeFromParent()
+        guard let levelNode = levelNode else { return }
+
+        let starContainer = SKNode()
+        starContainer.name = "StarField"
+        // ⭐ Über dem Level-Hintergrund, aber unter Asteroiden/Ships (8/9/10)
+        starContainer.zPosition = 4
+        levelNode.addChild(starContainer)
+        starFieldNode = starContainer
+
+        // lokale Größe der spielbaren Map
+        let levelSize = levelNode.frame.size
+        let width: CGFloat  = levelSize.width
+        let height: CGFloat = levelSize.height
+        let halfW = width / 2
+        let halfH = height / 2
+
+        let area = width * height
+        let baseDensity: CGFloat = 1.0 / 25000.0
+        var starCount = Int(area * baseDensity)
+        starCount = max(140, min(starCount, 360))   // etwas dichter
+
+        for _ in 0..<starCount {
+            let size = CGFloat.random(in: 3.0...6.0)
+
+            // ⭐ Runder, leuchtender Stern
+            let star = SKShapeNode(circleOfRadius: size / 2)
+            star.fillColor = .white
+            star.strokeColor = .clear
+            star.glowWidth = size * 1.3   // weicher Glow
+            star.lineWidth = 0
+            star.zPosition = 0
+
+            // ❗ lokale Position innerhalb der Map (nicht frame.minX/maxX)
+            let x = CGFloat.random(in: -halfW ... halfW)
+            let y = CGFloat.random(in: -halfH ... halfH)
+            star.position = CGPoint(x: x, y: y)
+
+            star.alpha = 1.0
+
+            // ⭐ Twinkle-Effekte
+            if Bool.random() {
+                // weiches Pulsieren
+                let minA: CGFloat = 0.4
+                let pulse = SKAction.sequence([
+                    .fadeAlpha(to: minA, duration: Double.random(in: 0.5...0.9)),
+                    .fadeAlpha(to: 1.0, duration: Double.random(in: 0.5...0.9))
+                ])
+                star.run(.repeatForever(pulse))
+            } else {
+                // seltenes Aufblitzen
+                let baseA: CGFloat = 0.15
+                star.alpha = baseA
+                let twinkle = SKAction.sequence([
+                    .wait(forDuration: Double.random(in: 0.8...3.0)),
+                    .fadeAlpha(to: 1.0, duration: 0.08),
+                    .fadeAlpha(to: baseA, duration: 0.25)
+                ])
+                star.run(.repeatForever(twinkle))
+            }
+
+            starContainer.addChild(star)
+        }
+    }
+
+    // MARK: - Shooting Stars
+
+    /// Helle, diagonale Shooting Stars, die über die spielbare Map fliegen
+    func spawnShootingStar(currentTime: TimeInterval) {
+        guard let levelNode = levelNode,
+              let starContainer = starFieldNode else { return }
+
+        // Zeitbasiert: nur alle paar Sekunden
+        if currentTime < lastShootingStarTime {
+            return
+        }
+
+        // nächster Spawn irgendwo zwischen 5 und 10 Sekunden
+        lastShootingStarTime = currentTime + TimeInterval.random(in: 3.0...10.0)
+
+        // LOKALE Größe des Levelbereichs
+        let levelSize = levelNode.frame.size
+        let width  = levelSize.width
+        let height = levelSize.height
+        let halfW = width / 2
+        let halfH = height / 2
+
+        // Größe des Strichs
+        let length    = CGFloat.random(in: 40...80)
+        let thickness = CGFloat.random(in: 2...4)
+
+        let star = SKSpriteNode(
+            color: .white,
+            size: CGSize(width: length, height: thickness)
+        )
+        star.alpha = 1.0
+        star.blendMode = .add
+        star.colorBlendFactor = 1.0
+        // über den normalen Sternen (0), unter Gameplay (8/9/10)
+        star.zPosition = 1
+
+        // Start: links oder rechts außerhalb des Levelbereichs (lokale Koords)
+        let fromLeft = Bool.random()
+        let startX = fromLeft ? -halfW - 150 : halfW + 150
+        let startY = CGFloat.random(in: 0 ... halfH)
+        let startPos = CGPoint(x: startX, y: startY)
+
+        // Ziel: andere Seite, eher nach unten
+        let endX = fromLeft ? halfW + 250 : -halfW - 250
+        let endY = CGFloat.random(in: -halfH ... 0)
+        let endPos = CGPoint(x: endX, y: endY)
+
+        star.position = startPos
+
+        // Rotation an Flugrichtung
+        let dirX = endX - startX
+        let dirY = endY - startY
+        star.zRotation = atan2(dirY, dirX)
+
+        let distance = hypot(dirX, dirY)
+        let speed: CGFloat = 1300
+        let duration = TimeInterval(distance / speed)
+
+        let move = SKAction.move(to: endPos, duration: duration)
+        let fade = SKAction.fadeOut(withDuration: duration)
+        let group = SKAction.group([move, fade])
+
+        // ❗ jetzt im Star-Container, nicht direkt im LevelNode
+        starContainer.addChild(star)
+        star.run(.sequence([group, .removeFromParent()]))
     }
 
     // MARK: - Spieler-Schiff
@@ -349,7 +489,7 @@ extension GameScene {
         body.isDynamic = false
         body.affectedByGravity = false
         body.categoryBitMask = PhysicsCategory.enemy
-        body.collisionBitMask = PhysicsCategory.player
+        body.collisionBitMask = PhysicsCategory.player | PhysicsCategory.enemy
         body.contactTestBitMask = PhysicsCategory.bullet | PhysicsCategory.player
 
         node.physicsBody = body
@@ -413,7 +553,7 @@ extension GameScene {
         body.affectedByGravity = false
         body.allowsRotation = true
         body.categoryBitMask = PhysicsCategory.enemy
-        body.collisionBitMask = PhysicsCategory.wall | PhysicsCategory.player
+        body.collisionBitMask = PhysicsCategory.wall | PhysicsCategory.player | PhysicsCategory.enemy
         body.contactTestBitMask = PhysicsCategory.bullet | PhysicsCategory.player
 
         node.physicsBody = body
