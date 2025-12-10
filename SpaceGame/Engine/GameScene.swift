@@ -192,10 +192,35 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if first.categoryBitMask == PhysicsCategory.bullet &&
            second.categoryBitMask == PhysicsCategory.enemy {
 
+            // Bullet entfernen
             first.node?.removeFromParent()
 
             guard let enemyNode = second.node as? SKSpriteNode else { return }
 
+            // Ist es ein EnemyShip oder ein Asteroid?
+            let isShip = enemyShips.contains(enemyNode)
+
+            // 1) Kurz aufblitzen lassen
+            flashEnemy(enemyNode, isShip: isShip)
+
+            // 2) Hit-Sparks-Farbe wählen
+            let sparkColor: SKColor
+            if isShip {
+                // Schiffe → bläulich / energiemäßig
+                sparkColor = SKColor(red: 0.4, green: 0.9, blue: 1.0, alpha: 1.0)
+            } else {
+                // Asteroiden → warm, wie Gesteins-/Metal-Splitter
+                sparkColor = SKColor(red: 1.0, green: 0.85, blue: 0.45, alpha: 1.0)
+            }
+
+            // 3) Funken am Kontaktpunkt
+            let hitPos = contact.contactPoint
+            spawnHitSparks(at: hitPos,
+                           baseColor: sparkColor,
+                           count: isShip ? 12 : 9,
+                           zPos: enemyNode.zPosition + 2)
+
+            // 4) HP-Logik wie bisher
             if enemyNode.userData == nil {
                 enemyNode.userData = NSMutableDictionary()
             }
@@ -723,6 +748,75 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             let dy = sin(angle) * distance
 
             let duration: TimeInterval = 0.35
+
+            let move  = SKAction.moveBy(x: dx, y: dy, duration: duration)
+            let fade  = SKAction.fadeOut(withDuration: duration)
+            let scale = SKAction.scaleX(to: 0.2, duration: duration)
+
+            let group  = SKAction.group([move, fade, scale])
+            let finish = SKAction.removeFromParent()
+
+            spark.run(.sequence([group, finish]))
+            addChild(spark)
+        }
+    }
+
+    // MARK: - Treffereffekte (Flash + Hit-Sparks)
+
+    /// Kurzer Farb-Flash auf einem Gegner, wenn er getroffen wird
+    func flashEnemy(_ enemy: SKSpriteNode, isShip: Bool) {
+        let originalColor = enemy.color
+        let originalBlend = enemy.colorBlendFactor
+
+        // Schiffe leicht cyan, Asteroiden neutral weiß
+        let flashColor: SKColor = isShip
+            ? SKColor(red: 0.6, green: 0.95, blue: 1.0, alpha: 1.0)
+            : .white
+
+        let flashIn = SKAction.run {
+            enemy.color = flashColor
+            enemy.colorBlendFactor = 1.0
+        }
+
+        let wait = SKAction.wait(forDuration: 0.06)
+
+        let flashOut = SKAction.run {
+            enemy.color = originalColor
+            enemy.colorBlendFactor = originalBlend
+        }
+
+        let seq = SKAction.sequence([flashIn, wait, flashOut])
+        enemy.run(seq, withKey: "hitFlash")
+    }
+
+    /// Starke, kurze Treffer-Funken (kleiner als Explosion)
+    func spawnHitSparks(at position: CGPoint,
+                        baseColor: SKColor,
+                        count: Int = 10,
+                        zPos: CGFloat = 60) {
+        for _ in 0..<count {
+            let length = CGFloat.random(in: 18...32)
+            let thickness = CGFloat.random(in: 3...5)
+
+            let spark = SKSpriteNode(
+                color: baseColor,
+                size: CGSize(width: length, height: thickness)
+            )
+
+            spark.position = position
+            spark.zPosition = zPos
+            spark.alpha = 0.95
+            spark.blendMode = .add
+            spark.anchorPoint = CGPoint(x: 0.0, y: 0.5)
+
+            let angle = CGFloat.random(in: 0 ..< (.pi * 2))
+            spark.zRotation = angle
+
+            let distance = CGFloat.random(in: 60...120)
+            let dx = cos(angle) * distance
+            let dy = sin(angle) * distance
+
+            let duration: TimeInterval = 0.18
 
             let move  = SKAction.moveBy(x: dx, y: dy, duration: duration)
             let fade  = SKAction.fadeOut(withDuration: duration)
