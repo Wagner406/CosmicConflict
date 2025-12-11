@@ -9,6 +9,7 @@ extension GameScene {
 
     // MARK: - Öffentlich: vom Input aufgerufen
 
+    /// Schießt ein Projektil (oder bei Triple-Shot 3) mit fetten Effekten
     func shoot() {
         guard playerShip != nil else { return }
 
@@ -31,7 +32,7 @@ extension GameScene {
 
         let angle = ship.zRotation
 
-        // Vorwärts-Richtung des Schiffs
+        // Vorwärts-Richtung des Schiffs (lokales +Y)
         let dirX = -sin(angle)
         let dirY =  cos(angle)
 
@@ -39,12 +40,12 @@ extension GameScene {
         let rightX = cos(angle)
         let rightY = sin(angle)
 
-        // Bullet-Node (Sprite + Physik)
+        // Bullet-Node (Sprite + Physik + Visuals)
         let bullet = createPlayerBulletNode()
 
-        // Startposition: etwas vor dem Schiff plus seitliche Verschiebung
-        let bulletLength = max(bullet.size.width, bullet.size.height)
-        let forwardOffset: CGFloat = ship.size.height / 2 + bulletLength / 2 + 10
+        // Startposition: etwas vor dem Schiff plus seitliche Verschiebung.
+        // Da anchorPoint = (0, 0.5) ist, liegt die "Rückseite" an der Mündung.
+        let forwardOffset: CGFloat = ship.size.height / 2 + 10
 
         let baseX = ship.position.x + dirX * forwardOffset
         let baseY = ship.position.y + dirY * forwardOffset
@@ -52,11 +53,29 @@ extension GameScene {
         let sideX = rightX * sideOffset
         let sideY = rightY * sideOffset
 
-        bullet.position = CGPoint(x: baseX + sideX, y: baseY + sideY)
+        let startPos = CGPoint(x: baseX + sideX, y: baseY + sideY)
+
+        bullet.position  = startPos
         bullet.zRotation = angle
         bullet.zPosition = ship.zPosition + 1
 
+        // 💥 Energy-Bolt: kleiner Scale-Pop beim Spawn
+        bullet.setScale(0.6)
+        let pop = SKAction.scale(to: 1.0, duration: 0.06)
+        pop.timingMode = .easeOut
+        bullet.run(pop)
+
         addChild(bullet)
+
+        // 💥 Mündungs-Flash an der Kanone (blau)
+        let forwardAngle = atan2(dirY, dirX)
+        spawnMuzzleFlash(at: startPos,
+                         directionAngle: forwardAngle,
+                         zPos: bullet.zPosition + 1)
+
+        // 💨 Ghost-Trail hinter dem Projektil (bläulich)
+        let playerGhostColor = SKColor(red: 0.55, green: 0.9, blue: 1.0, alpha: 1.0)
+        attachGhostTrail(to: bullet, color: playerGhostColor)
 
         // Geschwindigkeit
         let bulletSpeed: CGFloat = 700
@@ -71,26 +90,27 @@ extension GameScene {
         ]))
     }
 
-    /// Erzeugt ein einzelnes Projektil mit Neon-Look + Glow + Funken
+    // MARK: - Player Bullet Look (Blue Energy-Bolt)
+
+    /// Erzeugt ein einzelnes Projektil mit Capsule-Look + Glow + Trail
     private func createPlayerBulletNode() -> SKSpriteNode {
         // Größe relativ zum Schiff
         let shipSize = playerShip?.size ?? CGSize(width: size.width * 0.1,
                                                   height: size.height * 0.1)
 
-        // 🔵 Kürzer & breiter, damit er „energiemäßig“ aussieht
+        // Länglich, damit es wie ein Laser-Bolt wirkt
         let width  = shipSize.width * 0.22
-        let height = shipSize.height * 0.45   // kürzer als vorher
+        let height = shipSize.height * 0.45
 
+        // Basis-Sprite nur für Physik – VISUELL unsichtbar
         let bullet = SKSpriteNode(
-            color: .cyan,
+            color: .clear,
             size: CGSize(width: width, height: height)
         )
 
-        // Neon-Look
-        bullet.color = .cyan
-        bullet.colorBlendFactor = 1.0
-        bullet.alpha = 0.95
-        bullet.blendMode = .add   // ⭐ Additive Blend für Glow
+        bullet.alpha = 1.0
+        bullet.blendMode = .add
+        bullet.anchorPoint = CGPoint(x: 0.0, y: 0.5) // hinteres Ende = Spawnpunkt
 
         // Physik
         let body = SKPhysicsBody(rectangleOf: bullet.size)
@@ -105,21 +125,36 @@ extension GameScene {
 
         bullet.physicsBody = body
 
-        // 🌟 zusätzlicher Glow mit SKShapeNode (weicher Rand)
-        let glow = SKShapeNode(rectOf: bullet.size, cornerRadius: width / 2)
-        glow.fillColor = .cyan
-        glow.strokeColor = .clear
-        glow.glowWidth = width * 1.6
-        glow.alpha = 0.6
-        glow.zPosition = -1
-        bullet.addChild(glow)
+        // --- VISUELLE CAPSULE: innerer Kern + äußerer Glow ---
 
-        // 💨 weicher „Dunst“-Trail
+        let coreSize = CGSize(width: width * 0.55, height: height * 0.85)
+
+        // heller, leicht bläulicher Kern
+        let core = SKShapeNode(rectOf: coreSize, cornerRadius: coreSize.width / 2)
+        core.fillColor = SKColor(red: 0.8, green: 0.95, blue: 1.0, alpha: 1.0)
+        core.strokeColor = .clear
+        core.glowWidth = coreSize.height * 0.9
+        core.alpha = 0.95
+        core.zPosition = 0
+        core.blendMode = .add
+        bullet.addChild(core)
+
+        // 🔵 kräftiger blauer Outer-Glow
+        let outer = SKShapeNode(rectOf: coreSize, cornerRadius: coreSize.width / 2)
+        outer.fillColor = SKColor(red: 0.2, green: 0.6, blue: 1.0, alpha: 1.0)
+        outer.strokeColor = .clear
+        outer.glowWidth = coreSize.height * 1.3
+        outer.alpha = 0.9
+        outer.zPosition = -0.5
+        outer.blendMode = .add
+        bullet.addChild(outer)
+
+        // 💨 weicher „Dunst“-Trail (Emitter, blau/cyan)
         let trail = createBulletTrail(bulletLength: height)
         trail.targetNode = self
         bullet.addChild(trail)
 
-        // 🔷 einzelne schnelle Funken
+        // 🔷 schnelle Funken hinter dem Bolt (blau/cyan)
         let sparks = createBulletSparks(bulletLength: height)
         sparks.targetNode = self
         bullet.addChild(sparks)
@@ -127,17 +162,17 @@ extension GameScene {
         return bullet
     }
 
-    /// Weicher Neon-Trail hinter dem Projektil
+    /// Weicher Neon-Trail hinter dem Projektil (Partikel-Hauch)
     private func createBulletTrail(bulletLength: CGFloat) -> SKEmitterNode {
         let emitter = SKEmitterNode()
 
         emitter.particleTexture = nil
-        emitter.particleBirthRate = 200
-        emitter.particleLifetime = 0.35
-        emitter.particleLifetimeRange = 0.1
+        emitter.particleBirthRate = 140
+        emitter.particleLifetime = 0.30
+        emitter.particleLifetimeRange = 0.08
 
         emitter.particleSpeed = 0
-        emitter.particleSpeedRange = 30
+        emitter.particleSpeedRange = 25
 
         emitter.emissionAngleRange = .pi        // rund ums Projektil
         emitter.particleAlpha = 0.8
@@ -148,11 +183,12 @@ extension GameScene {
         emitter.particleScaleRange = 0.12
         emitter.particleScaleSpeed = -0.4
 
-        emitter.particleColor = .cyan
+        // blau/cyan
+        emitter.particleColor = SKColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 1.0)
         emitter.particleColorBlendFactor = 1.0
         emitter.particleBlendMode = .add
 
-        // sitzt hinter der Mitte des Projektils
+        // sitzt hinter der Mitte des Projektils (lokales -Y)
         emitter.position = CGPoint(x: 0, y: -bulletLength * 0.4)
         emitter.zPosition = -1
 
@@ -183,18 +219,152 @@ extension GameScene {
         emitter.particleScaleRange = 0.1
         emitter.particleScaleSpeed = -0.6
 
-        emitter.particleColor = .cyan
+        emitter.particleColor = SKColor(red: 0.4, green: 0.8, blue: 1.0, alpha: 1.0)
         emitter.particleColorBlendFactor = 1.0
         emitter.particleBlendMode = .add
 
-        // leicht hinter der Spitze des Lasers
+        // leicht hinter der "Spitze"
         emitter.position = CGPoint(x: 0, y: -bulletLength * 0.2)
         emitter.zPosition = 0
 
         return emitter
     }
 
-    // MARK: - Schießen (Gegner bleibt wie gehabt)
+    // MARK: - Ghost-Trail (glühende Dots, ohne Emitter)
+
+    /// Hängt ein Ghost-Trail-Action an ein Projektil (Farbe je nach Schütze)
+    private func attachGhostTrail(to bullet: SKSpriteNode, color: SKColor) {
+        let spawnInterval: TimeInterval = 0.028
+
+        let spawnGhost = SKAction.run { [weak self, weak bullet] in
+            guard let self = self, let bullet = bullet else { return }
+
+            let angle = bullet.zRotation
+            let dist  = bullet.size.height * 0.4
+
+            // hinter dem Projektil (lokales -Y)
+            let backX = sin(angle) * dist
+            let backY = -cos(angle) * dist
+
+            let pos = CGPoint(
+                x: bullet.position.x + backX,
+                y: bullet.position.y + backY
+            )
+
+            let radius = bullet.size.width * 0.18
+            let dot = SKShapeNode(circleOfRadius: radius)
+            dot.position = pos
+            dot.zPosition = bullet.zPosition - 1
+            dot.fillColor = color
+            dot.strokeColor = .clear
+            dot.glowWidth = radius * 1.5
+            dot.alpha = 0.6
+            dot.blendMode = .add
+
+            self.addChild(dot)
+
+            let dur: TimeInterval = 0.16
+            let fade  = SKAction.fadeOut(withDuration: dur)
+            let scale = SKAction.scale(to: 0.2, duration: dur)
+            let group = SKAction.group([fade, scale])
+            dot.run(.sequence([group, .removeFromParent()]))
+        }
+
+        let seq = SKAction.sequence([
+            .wait(forDuration: spawnInterval),
+            spawnGhost
+        ])
+
+        bullet.run(.repeatForever(seq), withKey: "ghostTrail")
+    }
+
+    // MARK: - Muzzle-Flash (Kanonen-Flash am Schiff)
+
+    /// Kurzer, heftiger Flash an der Mündung
+    private func spawnMuzzleFlash(at position: CGPoint,
+                                  directionAngle: CGFloat,
+                                  zPos: CGFloat) {
+
+        // 1) Runder Kern (weiß + blauer Glow)
+        let radius: CGFloat = 14
+
+        let core = SKShapeNode(circleOfRadius: radius)
+        core.position = position
+        core.zPosition = zPos
+        core.fillColor = .white
+        core.strokeColor = .clear
+        core.glowWidth = radius * 2.0
+        core.alpha = 0.95
+        core.blendMode = .add
+        addChild(core)
+
+        let coreDuration: TimeInterval = 0.06
+        let coreFade  = SKAction.fadeOut(withDuration: coreDuration)
+        let coreScale = SKAction.scale(to: 0.4, duration: coreDuration)
+        let coreGroup = SKAction.group([coreFade, coreScale])
+        core.run(.sequence([coreGroup, .removeFromParent()]))
+
+        // 2) Kurzer Strahl nach vorne (blau)
+        let beamLength: CGFloat = 36
+        let beamThickness: CGFloat = 10
+
+        let beam = SKSpriteNode(
+            color: SKColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 1.0),
+            size: CGSize(width: beamLength, height: beamThickness)
+        )
+
+        beam.position = position
+        beam.zPosition = zPos
+        beam.alpha = 0.9
+        beam.blendMode = .add
+        beam.anchorPoint = CGPoint(x: 0.0, y: 0.5)
+        beam.zRotation = directionAngle
+
+        addChild(beam)
+
+        let beamDuration: TimeInterval = 0.07
+        let beamFade  = SKAction.fadeOut(withDuration: beamDuration)
+        let beamScale = SKAction.scaleX(to: 0.2, duration: beamDuration)
+        let beamGroup = SKAction.group([beamFade, beamScale])
+        beam.run(.sequence([beamGroup, .removeFromParent()]))
+
+        // 3) Kleine Muzzle-Funken (blau)
+        let sparkCount = 4
+        for _ in 0..<sparkCount {
+            let sLength: CGFloat = CGFloat.random(in: 10...18)
+            let sThickness: CGFloat = 3
+
+            let spark = SKSpriteNode(
+                color: SKColor(red: 0.5, green: 0.8, blue: 1.0, alpha: 1.0),
+                size: CGSize(width: sLength, height: sThickness)
+            )
+
+            spark.position = position
+            spark.zPosition = zPos
+            spark.alpha = 0.95
+            spark.blendMode = .add
+            spark.anchorPoint = CGPoint(x: 0.0, y: 0.5)
+
+            let jitter = CGFloat.random(in: -(.pi/6)...(.pi/6))
+            let a = directionAngle + jitter
+            spark.zRotation = a
+
+            let dist: CGFloat = CGFloat.random(in: 18...36)
+            let dx = cos(a) * dist
+            let dy = sin(a) * dist
+
+            let dur: TimeInterval = 0.09
+            let move  = SKAction.moveBy(x: dx, y: dy, duration: dur)
+            let fade  = SKAction.fadeOut(withDuration: dur)
+            let scale = SKAction.scaleX(to: 0.2, duration: dur)
+            let group = SKAction.group([move, fade, scale])
+
+            spark.run(.sequence([group, .removeFromParent()]))
+            addChild(spark)
+        }
+    }
+
+    // MARK: - Schießen der Gegner (🔴 rote Bolts)
 
     func enemyShoot(from enemy: SKSpriteNode, towards target: CGPoint) {
         let dx = target.x - enemy.position.x
@@ -205,11 +375,35 @@ extension GameScene {
         let dirX = dx / distance
         let dirY = dy / distance
 
-        let bulletSize = CGSize(width: 12, height: 18)
-        let bullet = SKSpriteNode(color: .red, size: bulletSize)
+        let bulletSize = CGSize(width: 14, height: 24)
+
+        // Basis-Sprite unsichtbar, Visuals als Kinder
+        let bullet = SKSpriteNode(color: .clear, size: bulletSize)
+        bullet.anchorPoint = CGPoint(x: 0.0, y: 0.5)
         bullet.blendMode = .add
-        bullet.color = .red
-        bullet.colorBlendFactor = 1.0
+        bullet.alpha = 1.0
+
+        // 🔴 Rot/Orange-Capsule
+        let coreSize = CGSize(width: bulletSize.width * 0.6,
+                              height: bulletSize.height * 0.9)
+
+        let core = SKShapeNode(rectOf: coreSize, cornerRadius: coreSize.width / 2)
+        core.fillColor = SKColor(red: 1.0, green: 0.85, blue: 0.7, alpha: 1.0) // heller Kern, warm
+        core.strokeColor = .clear
+        core.glowWidth = coreSize.height * 1.0
+        core.alpha = 0.95
+        core.zPosition = 0
+        core.blendMode = .add
+        bullet.addChild(core)
+
+        let outer = SKShapeNode(rectOf: coreSize, cornerRadius: coreSize.width / 2)
+        outer.fillColor = SKColor(red: 1.0, green: 0.25, blue: 0.15, alpha: 1.0) // satter Rot-Glow
+        outer.strokeColor = .clear
+        outer.glowWidth = coreSize.height * 1.4
+        outer.alpha = 0.9
+        outer.zPosition = -0.5
+        outer.blendMode = .add
+        bullet.addChild(outer)
 
         let offset: CGFloat = max(enemy.size.width, enemy.size.height) / 2 + 10
 
@@ -218,7 +412,15 @@ extension GameScene {
 
         bullet.position = CGPoint(x: startX, y: startY)
         bullet.zPosition = enemy.zPosition + 1
+
+        // zRotation so, dass lokale +Y in Schussrichtung zeigt
         bullet.zRotation = atan2(dirY, dirX) - .pi / 2
+
+        // kleiner Scale-Pop
+        bullet.setScale(0.7)
+        let pop = SKAction.scale(to: 1.0, duration: 0.06)
+        pop.timingMode = .easeOut
+        bullet.run(pop)
 
         let body = SKPhysicsBody(rectangleOf: bulletSize)
         body.isDynamic = true
@@ -237,6 +439,10 @@ extension GameScene {
         let vx = dirX * bulletSpeed
         let vy = dirY * bulletSpeed
         bullet.physicsBody?.velocity = CGVector(dx: vx, dy: vy)
+
+        // 🔴 kleiner Ghost-Trail auch für Enemy-Shots (orange/rot)
+        let enemyGhostColor = SKColor(red: 1.0, green: 0.6, blue: 0.3, alpha: 1.0)
+        attachGhostTrail(to: bullet, color: enemyGhostColor)
 
         bullet.run(.sequence([
             .wait(forDuration: 3.0),
