@@ -556,7 +556,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
-    /// Staub-Schweif / Staubwolke für Asteroiden (braune Partikel)
+    /// Staub-Schweif / Brocken-Wolke für Asteroiden (runde Gesteinsstücke)
     func spawnAsteroidParticles(currentTime: TimeInterval) {
         // begrenze Spawn-Rate global für alle Asteroiden
         if currentTime - lastAsteroidParticleTime < 0.08 {
@@ -577,33 +577,46 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 in: -asteroid.size.height * 0.4 ... asteroid.size.height * 0.4
             )
 
-            let particleSize = asteroid.size.width * 0.20
+            // runder Brocken-Radius relativ zur Asteroiden-Größe
+            let radius = asteroid.size.width * CGFloat.random(in: 0.03...0.08)
 
-            // braun/orange wie der Stein
-            let dustColor = SKColor(red: 0.60, green: 0.45, blue: 0.25, alpha: 1.0)
+            // leicht variierende Gesteinsfarbe (warm braun/orange)
+            let baseR: CGFloat = 0.60
+            let baseG: CGFloat = 0.45
+            let baseB: CGFloat = 0.25
+            let colorJitter: CGFloat = 0.06
 
-            let particle = SKSpriteNode(
-                color: dustColor,
-                size: CGSize(width: particleSize, height: particleSize)
-            )
+            let r = max(0, min(1, baseR + CGFloat.random(in: -colorJitter...colorJitter)))
+            let g = max(0, min(1, baseG + CGFloat.random(in: -colorJitter...colorJitter)))
+            let b = max(0, min(1, baseB + CGFloat.random(in: -colorJitter...colorJitter)))
 
-            particle.position = CGPoint(x: baseX + jitterX, y: baseY + jitterY)
-            particle.zPosition = asteroid.zPosition - 1
-            particle.alpha = 0.9
-            particle.blendMode = .alpha   // Staub, kein Neon-Glow
+            let dustColor = SKColor(red: r, green: g, blue: b, alpha: 1.0)
 
-            addChild(particle)
+            // runder Brocken als ShapeNode
+            let chunk = SKShapeNode(circleOfRadius: radius)
+            chunk.position = CGPoint(x: baseX + jitterX, y: baseY + jitterY)
+            chunk.zPosition = asteroid.zPosition - 1
+            chunk.fillColor = dustColor
+            chunk.strokeColor = .clear
+            chunk.glowWidth = 0       // matte Steine, kein Glow
+            chunk.alpha = 0.95
+            chunk.lineWidth = 0
+            chunk.blendMode = .alpha  // Staub, kein Neon-Glow
+
+            addChild(chunk)
 
             // Staub sinkt leicht nach unten und verschwindet
             let driftY: CGFloat = -asteroid.size.height * 0.3
-            let move  = SKAction.moveBy(x: 0, y: driftY, duration: 0.6)
+            let driftX: CGFloat = CGFloat.random(in: -asteroid.size.width * 0.05 ... asteroid.size.width * 0.05)
+
+            let move  = SKAction.moveBy(x: driftX, y: driftY, duration: 0.6)
             let fade  = SKAction.fadeOut(withDuration: 0.6)
-            let scale = SKAction.scale(to: 0.1, duration: 0.6)
+            let scale = SKAction.scale(to: 0.3, duration: 0.6)
 
             let group  = SKAction.group([move, fade, scale])
             let finish = SKAction.removeFromParent()
 
-            particle.run(.sequence([group, finish]))
+            chunk.run(.sequence([group, finish]))
         }
     }
 
