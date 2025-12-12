@@ -55,6 +55,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     let enemyMoveSpeed: CGFloat = 90  // Verfolger-Geschwindigkeit
 
+    // ✅ Stop-Slide (nur beim Loslassen)
+    private var playerSlideVelocity = CGVector(dx: 0, dy: 0)
+    private let slideDamping: CGFloat = 0.86   // 0.82 = kürzer, 0.90 = länger
+
+    // ✅ Stop-Slide für Gegner-Schiffe (nur wenn sie in einem Frame nicht aktiv bewegt wurden)
+    private var enemySlideVelocities: [ObjectIdentifier: CGVector] = [:]
+
     // Kamera
     let cameraNode = SKCameraNode()
     let cameraZoom: CGFloat = 1.5
@@ -152,6 +159,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         setupEnemies()      // Start-Asteroiden, evtl. später Boss-Setup
         setupPlayerShip()
         setupCamera()       // ruft auch setupHUD() auf
+
+        // ✅ Slide-Init
+        playerSlideVelocity = CGVector(dx: 0, dy: 0)
+        enemySlideVelocities.removeAll()
 
         // fliegende Asteroiden
         lastAsteroidSpawnTime = 0
@@ -300,7 +311,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         lastUpdateTime = currentTime
 
-        // Spieler-Bewegung
+        // =========================
+        // ✅ Spieler: normal bewegen, nur beim Loslassen leicht sliden
+        // =========================
         if let direction = currentDirection {
             switch direction {
             case .forward:
@@ -310,6 +323,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 playerShip.position.x += dx
                 playerShip.position.y += dy
 
+                let dt = max(deltaTime, 0.001)
+                playerSlideVelocity = CGVector(dx: dx / dt, dy: dy / dt)
+
             case .backward:
                 let angle = playerShip.zRotation
                 let dx =  sin(angle) * moveSpeed * deltaTime
@@ -317,12 +333,26 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 playerShip.position.x += dx
                 playerShip.position.y += dy
 
+                let dt = max(deltaTime, 0.001)
+                playerSlideVelocity = CGVector(dx: dx / dt, dy: dy / dt)
+
             case .rotateLeft:
                 playerShip.zRotation += rotateSpeed * deltaTime
 
             case .rotateRight:
                 playerShip.zRotation -= rotateSpeed * deltaTime
             }
+        } else {
+            // Stop-Slide (nur wenn kein Input)
+            playerShip.position.x += playerSlideVelocity.dx * deltaTime
+            playerShip.position.y += playerSlideVelocity.dy * deltaTime
+
+            let damp = pow(slideDamping, deltaTime * 60)
+            playerSlideVelocity.dx *= damp
+            playerSlideVelocity.dy *= damp
+
+            if abs(playerSlideVelocity.dx) < 5 { playerSlideVelocity.dx = 0 }
+            if abs(playerSlideVelocity.dy) < 5 { playerSlideVelocity.dy = 0 }
         }
 
         // Spieler innerhalb der Map halten
@@ -351,12 +381,55 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Shooting Stars im Hintergrund
         spawnShootingStar(currentTime: currentTime)
-        
+
         // Nebel-Parallax an Kamera-Bewegung koppeln
         updateNebulaParallax()
 
+        // =========================
+        // ✅ Enemy: Stop-Slide (nur wenn updateChaser sie NICHT bewegt)
+        // =========================
+        var enemyPrePos: [ObjectIdentifier: CGPoint] = [:]
+        for e in enemyShips {
+            enemyPrePos[ObjectIdentifier(e)] = e.position
+            if enemySlideVelocities[ObjectIdentifier(e)] == nil {
+                enemySlideVelocities[ObjectIdentifier(e)] = CGVector(dx: 0, dy: 0)
+            }
+        }
+
         // Verfolger-AI für ALLE Gegner-Schiffe
         updateChaser(deltaTime: deltaTime)
+
+        // Nach updateChaser prüfen: bewegt? Wenn nicht → leicht sliden
+        let dtE = max(deltaTime, 0.001)
+        for e in enemyShips {
+            let key = ObjectIdentifier(e)
+            let before = enemyPrePos[key] ?? e.position
+            let after  = e.position
+
+            let movedDx = after.x - before.x
+            let movedDy = after.y - before.y
+            let movedDist = hypot(movedDx, movedDy)
+
+            if movedDist > 0.2 {
+                // wurde aktiv bewegt → Velocity updaten
+                enemySlideVelocities[key] = CGVector(dx: movedDx / dtE, dy: movedDy / dtE)
+            } else {
+                // wurde nicht bewegt → Stop-Slide anwenden
+                var v = enemySlideVelocities[key] ?? CGVector(dx: 0, dy: 0)
+
+                e.position.x += v.dx * deltaTime
+                e.position.y += v.dy * deltaTime
+
+                let damp = pow(slideDamping, deltaTime * 60)
+                v.dx *= damp
+                v.dy *= damp
+
+                if abs(v.dx) < 3 { v.dx = 0 }
+                if abs(v.dy) < 3 { v.dy = 0 }
+
+                enemySlideVelocities[key] = v
+            }
+        }
 
         // Kamera folgt dem Spieler
         cameraNode.position = playerShip.position
@@ -622,6 +695,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     /// Zerbrösel-Animation für einen Asteroiden (3x2 Sprite-Sheet)
     func playAsteroidDestruction(on asteroid: SKSpriteNode) {
+        
+        SoundManager.shared.playRandomExplosion(on: self)
+        
         let sheet = SKTexture(imageNamed: "AstroidDestroyed")
 
         // Falls das Sheet fehlt → Fallback: nur ausblenden
@@ -681,6 +757,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     /// Explosion für Gegner-Schiffe (2x3 Sprite-Sheet, blau)
     func playEnemyShipExplosion(at position: CGPoint, zPosition: CGFloat) {
+        
+        SoundManager.shared.playRandomExplosion(on: self)
+        
         let sheet = SKTexture(imageNamed: "ExplosionEnemyShip") // Name im Asset-Katalog
 
         guard sheet.size() != .zero else { return }
@@ -911,7 +990,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             addChild(spark)
         }
     }
-    
+
     // MARK: - Schaden am Spieler
 
     func applyDamageToPlayer(amount: Int) {
