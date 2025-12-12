@@ -55,11 +55,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     let enemyMoveSpeed: CGFloat = 90  // Verfolger-Geschwindigkeit
 
-    // ✅ Stop-Slide (nur beim Loslassen)
+    // Stop-Slide (nur beim Loslassen)
     private var playerSlideVelocity = CGVector(dx: 0, dy: 0)
     private let slideDamping: CGFloat = 0.86   // 0.82 = kürzer, 0.90 = länger
 
-    // ✅ Stop-Slide für Gegner-Schiffe (nur wenn sie in einem Frame nicht aktiv bewegt wurden)
+    // Stop-Slide für Gegner-Schiffe (nur wenn sie in einem Frame nicht aktiv bewegt wurden)
     private var enemySlideVelocities: [ObjectIdentifier: CGVector] = [:]
 
     // Kamera
@@ -105,6 +105,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // Zeit aus update(), damit didBegin weiß, welche Zeit gilt
     var currentTimeForCollisions: TimeInterval = 0
+    
+    private var musicNode: SKAudioNode?
 
     // MARK: - Powerups
 
@@ -153,6 +155,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
 
         setupBackground()
+        startLevelMusic()
         setupLevel()        // nutzt jetzt LevelFactory und GameLevel + Sterne
         setupToxicGasClouds()
         setupParallaxNebulaLayer()
@@ -160,7 +163,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         setupPlayerShip()
         setupCamera()       // ruft auch setupHUD() auf
 
-        // ✅ Slide-Init
+        // Slide-Init
         playerSlideVelocity = CGVector(dx: 0, dy: 0)
         enemySlideVelocities.removeAll()
 
@@ -179,6 +182,23 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             startRound(1)
             showRoundAnnouncement(forRound: 1)
         }
+    }
+    
+    // MARK: Musik
+    private func startLevelMusic() {
+        // nur wenn Level Musik definiert
+        guard let file = level?.config.musicFileName else { return }
+
+        // nicht doppelt starten
+        if musicNode != nil { return }
+
+        let node = SKAudioNode(fileNamed: file)
+        node.autoplayLooped = true
+        node.isPositional = false
+        node.run(SKAction.changeVolume(to: 0.55, duration: 0.0))
+
+        addChild(node)
+        musicNode = node
     }
 
     // MARK: - Touch → Spieler schießt

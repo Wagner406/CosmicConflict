@@ -22,6 +22,9 @@ struct LevelConfig {
     let backgroundTextureName: String
     let worldScale: CGFloat
 
+    // Musik (optional, damit nicht jedes Level Musik haben muss)
+    let musicFileName: String?
+    
     // Waves / Runden
     let wavesEnabled: Bool
     let rounds: [RoundConfig]?
@@ -43,7 +46,7 @@ struct GameLevel {
 // Sammlung deiner Levels
 enum GameLevels {
 
-    // 🚀 Level 1 – dein aktuelles „normales“ Level mit Waves
+    // Level 1 – dein aktuelles „normales“ Level mit Waves
     static let level1 = GameLevel(
         id: 1,
         name: "Sector Alpha",
@@ -51,6 +54,7 @@ enum GameLevels {
         config: LevelConfig(
             backgroundTextureName: "space1",   // aktuelles Map-Bild
             worldScale: 2.0,
+            musicFileName: "Level1Music.mp3",
             wavesEnabled: true,
             rounds: [
                 RoundConfig(spawnInterval: 5.0, enemyCount: 5),
@@ -65,7 +69,7 @@ enum GameLevels {
         )
     )
 
-    // 👾 Level 2 – Bossfight (Config erstmal vorbereitet)
+    // Level 2 – Bossfight (Config erstmal vorbereitet)
     static let level2 = GameLevel(
         id: 2,
         name: "Mothership",
@@ -73,6 +77,7 @@ enum GameLevels {
         config: LevelConfig(
             backgroundTextureName: "space2", // anderes Hintergrundbild
             worldScale: 2.0,
+            musicFileName: nil,
             wavesEnabled: false,
             rounds: nil,
             bossName: "Overlord-X9",
