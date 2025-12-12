@@ -106,8 +106,6 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     // Zeit aus update(), damit didBegin weiß, welche Zeit gilt
     var currentTimeForCollisions: TimeInterval = 0
     
-    private var musicNode: SKAudioNode?
-
     // MARK: - Powerups
 
     enum PowerUpType: CaseIterable {
@@ -154,8 +152,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             level = GameLevels.level1
         }
 
+        SoundManager.shared.startMusicIfNeeded(for: level.id, in: self)
+        
         setupBackground()
-        startLevelMusic()
+        
         setupLevel()        // nutzt jetzt LevelFactory und GameLevel + Sterne
         setupToxicGasClouds()
         setupParallaxNebulaLayer()
@@ -182,23 +182,6 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             startRound(1)
             showRoundAnnouncement(forRound: 1)
         }
-    }
-    
-    // MARK: Musik
-    private func startLevelMusic() {
-        // nur wenn Level Musik definiert
-        guard let file = level?.config.musicFileName else { return }
-
-        // nicht doppelt starten
-        if musicNode != nil { return }
-
-        let node = SKAudioNode(fileNamed: file)
-        node.autoplayLooped = true
-        node.isPositional = false
-        node.run(SKAction.changeVolume(to: 0.55, duration: 0.0))
-
-        addChild(node)
-        musicNode = node
     }
 
     // MARK: - Touch → Spieler schießt
@@ -716,7 +699,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     /// Zerbrösel-Animation für einen Asteroiden (3x2 Sprite-Sheet)
     func playAsteroidDestruction(on asteroid: SKSpriteNode) {
         
-        SoundManager.shared.playRandomExplosion(on: self)
+        SoundManager.shared.playRandomExplosion(in: self)
         
         let sheet = SKTexture(imageNamed: "AstroidDestroyed")
 
@@ -778,7 +761,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     /// Explosion für Gegner-Schiffe (2x3 Sprite-Sheet, blau)
     func playEnemyShipExplosion(at position: CGPoint, zPosition: CGFloat) {
         
-        SoundManager.shared.playRandomExplosion(on: self)
+        SoundManager.shared.playRandomExplosion(in: self)
         
         let sheet = SKTexture(imageNamed: "ExplosionEnemyShip") // Name im Asset-Katalog
 

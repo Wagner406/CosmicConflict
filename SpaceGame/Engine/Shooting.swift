@@ -13,7 +13,7 @@ extension GameScene {
     func shoot() {
         guard playerShip != nil else { return }
         
-        SoundManager.shared.play(Sound.playerShot, on: self)
+        SoundManager.shared.play(Sound.playerShot, in: self)
         
         if isTripleShotActive {
             // Mitte, links, rechts (seitlich versetzt)
@@ -370,7 +370,7 @@ extension GameScene {
     
     func enemyShoot(from enemy: SKSpriteNode, towards target: CGPoint) {
         
-        SoundManager.shared.play(Sound.enemyShot, on: self)
+        SoundManager.shared.play(Sound.enemyShot, in: self)
         
         let dx = target.x - enemy.position.x
         let dy = target.y - enemy.position.y
@@ -388,7 +388,7 @@ extension GameScene {
         bullet.blendMode = .add
         bullet.alpha = 1.0
         
-        // 🔴 Rot/Orange-Capsule
+        // Rot/Orange-Capsule
         let coreSize = CGSize(width: bulletSize.width * 0.6,
                               height: bulletSize.height * 0.9)
         
