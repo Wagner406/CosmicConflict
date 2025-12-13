@@ -105,7 +105,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // Zeit aus update(), damit didBegin weiß, welche Zeit gilt
     var currentTimeForCollisions: TimeInterval = 0
-    
+
     // MARK: - Powerups
 
     enum PowerUpType: CaseIterable {
@@ -152,10 +152,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             level = GameLevels.level1
         }
 
-        SoundManager.shared.startMusicIfNeeded(for: level.id, in: self)
-        
         setupBackground()
-        
+
         setupLevel()        // nutzt jetzt LevelFactory und GameLevel + Sterne
         setupToxicGasClouds()
         setupParallaxNebulaLayer()
@@ -176,6 +174,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Shooting Star Timer initialisieren
         lastShootingStarTime = 0
+
+        // ✅ FIX: Musik erst starten, nachdem die Kamera existiert (SoundManager hängt Audio an camera wenn vorhanden)
+        SoundManager.shared.startMusicIfNeeded(for: level.id, in: self)
 
         // Nur bei Wave-Levels Runden starten
         if level.type == .normal && (level.config.rounds?.isEmpty == false) {
@@ -246,12 +247,21 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
             if newHP <= 0 {
                 if enemyShips.contains(enemyNode) {
-                    // 🔵 Gegner-Schiff: Explosion abspielen + Runde updaten
-                    registerEnemyShipKilled(enemyNode)
+                    // ✅ FIX: Sound richtig aufrufen + Gegner wirklich "aus AI rausnehmen"
+                    SoundManager.shared.playRandomExplosion(in: self)
+
+                    // Explosion Visual
                     playEnemyShipExplosion(
                         at: enemyNode.position,
                         zPosition: enemyNode.zPosition
                     )
+
+                    // ✅ FIX: aus enemyShips entfernen, sonst schießt er "unsichtbar" weiter
+                    enemyShips.removeAll { $0 == enemyNode }
+
+                    // sauber killen
+                    enemyNode.removeAllActions()
+                    enemyNode.physicsBody = nil
                     enemyNode.removeFromParent()
                 } else {
                     // 🪨 Asteroid: Zerbrösel-Animation
@@ -456,9 +466,6 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Boss-Logik könntest du später hier ergänzen (level.type == .boss)
     }
 
-    // MARK: Partikel
-
-    /// Neuer Thruster: runder Glow-Kern + Funken-Streaks hinter dem Spieler
     // MARK: Partikel
 
     /// Neuer Thruster: runder Glow-Kern + Funken-Streaks hinter dem Spieler
@@ -698,9 +705,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     /// Zerbrösel-Animation für einen Asteroiden (3x2 Sprite-Sheet)
     func playAsteroidDestruction(on asteroid: SKSpriteNode) {
-        
+
+        // ✅ FIX: Sound hier abspielen (nicht im didBegin doppelt / falsch)
         SoundManager.shared.playRandomExplosion(in: self)
-        
+
         let sheet = SKTexture(imageNamed: "AstroidDestroyed")
 
         // Falls das Sheet fehlt → Fallback: nur ausblenden
@@ -709,6 +717,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             asteroid.run(.sequence([fade, .removeFromParent()]))
             return
         }
+
+        // ✅ FIX: Velocity sichern, damit der Asteroid beim Zerbröseln nicht "stehen bleibt"
+        let savedVelocity = asteroid.physicsBody?.velocity ?? CGVector(dx: 0, dy: 0)
 
         let rows = 3
         let cols = 2
@@ -745,8 +756,16 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Parallel langsam ausblenden
         let fadeOut = SKAction.fadeOut(withDuration: 0.5)
-        let group   = SKAction.group([animate, fadeOut])
 
+        // ✅ FIX: Drift weiterlaufen lassen (ca. 0.5s)
+        let driftDuration: TimeInterval = 0.5
+        let drift = SKAction.moveBy(
+            x: savedVelocity.dx * driftDuration,
+            y: savedVelocity.dy * driftDuration,
+            duration: driftDuration
+        )
+
+        let group = SKAction.group([animate, fadeOut, drift])
         asteroid.run(.sequence([group, .removeFromParent()]))
 
         // Funken an der Position des Asteroiden
@@ -760,11 +779,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     /// Explosion für Gegner-Schiffe (2x3 Sprite-Sheet, blau)
     func playEnemyShipExplosion(at position: CGPoint, zPosition: CGFloat) {
-        
-        SoundManager.shared.playRandomExplosion(in: self)
-        
-        let sheet = SKTexture(imageNamed: "ExplosionEnemyShip") // Name im Asset-Katalog
 
+        let sheet = SKTexture(imageNamed: "ExplosionEnemyShip") // Name im Asset-Katalog
         guard sheet.size() != .zero else { return }
 
         let rows = 2
