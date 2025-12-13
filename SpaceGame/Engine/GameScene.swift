@@ -28,6 +28,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     var playerShip: SKSpriteNode!
     var levelNode: SKNode!
+    
+    let bossCameraZoom: CGFloat = 2.1   // ✅ weiter raus (normal cameraZoom ist 1.5)
 
     /// Alle Gegner (Asteroiden + verfolgenden Schiffe)
     var enemies: [SKSpriteNode] = []
@@ -61,6 +63,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // Stop-Slide für Gegner-Schiffe (nur wenn sie in einem Frame nicht aktiv bewegt wurden)
     private var enemySlideVelocities: [ObjectIdentifier: CGVector] = [:]
+    
+    // Boss HUD
+    var bossHealthBarBg: SKShapeNode?
+    var bossHealthBarFill: SKShapeNode?
+    var bossHealthLabel: SKLabelNode?
+    var bossPhaseLabel: SKLabelNode?
 
     // Kamera
     let cameraNode = SKCameraNode()
@@ -141,6 +149,23 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     /// Level komplett geschafft?
     var isLevelCompleted: Bool = false
 
+    // MARK: - Boss (Level 2)
+
+    var boss: SKSpriteNode?
+    var bossPhase: BossPhase = .phase1
+
+    var bossShieldNode: SKShapeNode?
+    var bossIsShieldActive: Bool = false
+
+    var bossNextMoveTime: TimeInterval = 0
+    var bossPauseUntil: TimeInterval = 0
+    var bossNextShotTime: TimeInterval = 0
+
+    var bossBurstShotsRemaining: Int = 0
+    var bossBurstNextShotTime: TimeInterval = 0
+
+    var bossLastPauseTriggerTime: TimeInterval = 0
+
     // MARK: - Lifecycle
 
     override func didMove(to view: SKView) {
@@ -183,6 +208,14 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             startRound(1)
             showRoundAnnouncement(forRound: 1)
         }
+
+        // ✅ Boss-Setup für Level 2
+        if level.type == .boss {
+            setupBossIfNeeded()
+            setupBossHUD()
+            updateBossHUD()
+            cameraNode.setScale(bossCameraZoom)
+        }
     }
 
     // MARK: - Touch → Spieler schießt
@@ -203,7 +236,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             second = contact.bodyA
         }
 
-        // Spieler-Bullet trifft Enemy (Asteroid oder Gegner-Schiff)
+        // Spieler-Bullet trifft Enemy (Asteroid oder Gegner-Schiff / Boss)
         if first.categoryBitMask == PhysicsCategory.bullet &&
            second.categoryBitMask == PhysicsCategory.enemy {
 
@@ -211,6 +244,20 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             first.node?.removeFromParent()
 
             guard let enemyNode = second.node as? SKSpriteNode else { return }
+
+            // ✅ Boss special-case (Boss hat eigene HP/Phasen/Shield-Logik in BossFight.swift)
+            if let b = boss, enemyNode == b {
+
+                // Impact-Sparks
+                spawnHitSparks(at: contact.contactPoint,
+                               baseColor: .cyan,
+                               count: 14,
+                               zPos: b.zPosition + 3)
+
+                // Boss Schaden (respektiert Shield)
+                applyDamageToBoss(b, amount: 1)
+                return
+            }
 
             // Ist es ein EnemyShip oder ein Asteroid?
             let isShip = enemyShips.contains(enemyNode)
@@ -459,11 +506,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Powerup-Dauer (Triple Shot / Shield) überprüfen
         updatePowerUpDurations(currentTime: currentTime)
 
-        // Gegner-Waves für aktuelle Runde spawnen
+        // Waves ODER Boss
         if level.type == .normal {
             handleEnemyWaveSpawning(currentTime: currentTime)
+        } else if level.type == .boss {
+            updateBossFight(currentTime: currentTime)
         }
-        // Boss-Logik könntest du später hier ergänzen (level.type == .boss)
     }
 
     // MARK: Partikel
@@ -648,7 +696,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         lastAsteroidParticleTime = currentTime
 
         // Alle Gegner, die NICHT in enemyShips sind → Asteroiden
-        for asteroid in enemies where !enemyShips.contains(asteroid) {
+        for asteroid in enemies where !enemyShips.contains(asteroid) && asteroid != boss {
+            let isBoss = (boss != nil && asteroid == boss)
             let baseX = asteroid.position.x
             let baseY = asteroid.position.y
 
@@ -1079,6 +1128,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             } else {
                 setActivePowerUpLabel("Triple Shot")
             }
+        }
+    }
+    
+    override func didSimulatePhysics() {
+        super.didSimulatePhysics()
+
+        // ✅ Boss-Shield folgt Boss
+        if level.type == .boss {
+            bossFollowShieldIfNeeded()
         }
     }
 

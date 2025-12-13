@@ -615,7 +615,7 @@ extension GameScene {
 
         cameraNode.position = playerShip.position
         cameraNode.setScale(cameraZoom)
-
+        
         setupHUD()
     }
 
