@@ -22,7 +22,7 @@ final class SoundManager: NSObject {
     private override init() { super.init() }
 
     // 0.0 – 1.0
-    var sfxVolume: Float = 0.2
+    var sfxVolume: Float = 0.08
     var musicVolume: Float = 0.5
 
     // MARK: - MUSIC (SpriteKit)

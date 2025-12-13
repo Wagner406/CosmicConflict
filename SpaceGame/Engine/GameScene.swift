@@ -246,25 +246,25 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             updateEnemyHealthBar(for: enemyNode)
 
             if newHP <= 0 {
+
                 if enemyShips.contains(enemyNode) {
-                    // ✅ FIX: Sound richtig aufrufen + Gegner wirklich "aus AI rausnehmen"
+
+                    // ✅ DAS WAR DER FEHLENDE TEIL
+                    registerEnemyShipKilled(enemyNode)
+
                     SoundManager.shared.playRandomExplosion(in: self)
 
-                    // Explosion Visual
                     playEnemyShipExplosion(
                         at: enemyNode.position,
                         zPosition: enemyNode.zPosition
                     )
 
-                    // ✅ FIX: aus enemyShips entfernen, sonst schießt er "unsichtbar" weiter
-                    enemyShips.removeAll { $0 == enemyNode }
-
-                    // sauber killen
                     enemyNode.removeAllActions()
                     enemyNode.physicsBody = nil
                     enemyNode.removeFromParent()
+
                 } else {
-                    // 🪨 Asteroid: Zerbrösel-Animation
+                    // Asteroid (kein Einfluss auf Runden)
                     playAsteroidDestruction(on: enemyNode)
                 }
 
