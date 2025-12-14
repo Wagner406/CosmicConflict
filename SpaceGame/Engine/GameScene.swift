@@ -29,6 +29,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     var playerShip: SKSpriteNode!
     var levelNode: SKNode!
     
+    // Environment (Stars, ToxicGas, Nebula, ShootingStars)
+    private let environment = EnvironmentSystem()
+    
     let bossCameraZoom: CGFloat = 2.1   // ✅ weiter raus (normal cameraZoom ist 1.5)
 
     /// Alle Gegner (Asteroiden + verfolgenden Schiffe)
@@ -48,9 +51,6 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     /// Zeitstempel für Asteroiden-Staub
     var lastAsteroidParticleTime: TimeInterval = 0
-
-    /// Nächster Zeitpunkt, an dem ein Shooting Star gespawnt werden darf
-    var lastShootingStarTime: TimeInterval = 0
 
     let moveSpeed: CGFloat = 400      // Spieler-Bewegung
     let rotateSpeed: CGFloat = 4      // Spieler-Rotation
@@ -85,14 +85,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // Hintergrund
     var spaceBackground: SKSpriteNode?
-    /// Sternen-Layer innerhalb des Levels
-    var starFieldNode: SKNode?
-    /// Gaswolken-Layer um die nicht-spielbare Welt
-    var gasCloudLayer: SKNode?
-    /// Parallax-Nebula-Layer (Dekoration)
-    var nebulaLayer: SKNode?
-    let nebulaParallaxFactor: CGFloat = 0.35   // 0 = klebt, 1 = bewegt sich wie Gameplay
-
+    
     // Spieler-HP / Runden
     var playerMaxHP: Int = 100
     var playerHP: Int = 100
@@ -177,11 +170,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             level = GameLevels.level1
         }
 
-        setupBackground()
-
-        setupLevel()        // nutzt jetzt LevelFactory und GameLevel + Sterne
-        setupToxicGasClouds()
-        setupParallaxNebulaLayer()
+        setupLevel()        // nutzt jetzt LevelFactory und GameLevel
+        environment.buildForCurrentLevel(in: self)      // Stars, Gas, Nebula, ShootingStars
         setupEnemies()      // Start-Asteroiden, evtl. später Boss-Setup
         setupPlayerShip()
         setupCamera()       // ruft auch setupHUD() auf
@@ -196,9 +186,6 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Powerup-Timer initialisieren
         lastPowerUpSpawnTime = 0
-
-        // Shooting Star Timer initialisieren
-        lastShootingStarTime = 0
 
         // ✅ FIX: Musik erst starten, nachdem die Kamera existiert (SoundManager hängt Audio an camera wenn vorhanden)
         SoundManager.shared.startMusicIfNeeded(for: level.id, in: self)
@@ -436,14 +423,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Thruster-Partikel hinter allen Gegner-Schiffen
         spawnEnemyThrusterParticles(currentTime: currentTime)
 
-        // Staub / Schweif hinter fliegenden Asteroiden
+        // Particle: Staub / Schweif hinter fliegenden Asteroiden
         spawnAsteroidParticles(currentTime: currentTime)
 
-        // Shooting Stars im Hintergrund
-        spawnShootingStar(currentTime: currentTime)
-
-        // Nebel-Parallax an Kamera-Bewegung koppeln
-        updateNebulaParallax()
+        // Stars und Nebel
+        environment.update(in: self, currentTime: currentTime)
 
         // =========================
         // ✅ Enemy: Stop-Slide (nur wenn updateChaser sie NICHT bewegt)
