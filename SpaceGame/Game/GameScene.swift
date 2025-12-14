@@ -62,6 +62,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // VFX (one-shot)
     var vfx: VFXSystem!
 
+    // Player Movement System
+    private var playerMovement = PlayerMovementSystem()
+
     // MARK: - Enemies
 
     /// Alle Gegner (Asteroiden + verfolgenden Schiffe)
@@ -79,12 +82,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     let rotateSpeed: CGFloat = 4
     let enemyMoveSpeed: CGFloat = 90
 
-    // Stop-Slide (nur beim Loslassen)
-    private var playerSlideVelocity = CGVector(dx: 0, dy: 0)
-    private let slideDamping: CGFloat = 0.86
-
     // Stop-Slide für Gegner-Schiffe (nur wenn sie in einem Frame nicht aktiv bewegt wurden)
     private var enemySlideVelocities: [ObjectIdentifier: CGVector] = [:]
+
+    // Keep this here for now (later becomes EnemySlideSystem)
+    private let enemySlideDamping: CGFloat = 0.86
 
     // MARK: - Combat / Timers
 
@@ -217,8 +219,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     private func resetRuntimeState() {
-        // Slide-Init
-        playerSlideVelocity = .zero
+        // Player movement state
+        playerMovement.reset()
+
+        // Enemy slide state
         enemySlideVelocities.removeAll()
 
         // fliegende Asteroiden
@@ -265,7 +269,15 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         let deltaTime = computeDeltaTime(currentTime)
 
-        updatePlayerMovement(playerShip, deltaTime: deltaTime)
+        // Player movement handled by system now
+        playerMovement.update(
+            player: playerShip,
+            direction: currentDirection,
+            deltaTime: deltaTime,
+            moveSpeed: moveSpeed,
+            rotateSpeed: rotateSpeed
+        )
+
         clampPlayerToLevelBounds(playerShip)
 
         updateContinuousSystems(currentTime: currentTime, player: playerShip)
@@ -289,51 +301,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         return deltaTime
     }
 
-    // MARK: - Update: Player Movement + Slide
-
-    private func updatePlayerMovement(_ playerShip: SKSpriteNode, deltaTime: CGFloat) {
-        if let direction = currentDirection {
-            switch direction {
-            case .forward:
-                let angle = playerShip.zRotation
-                let dx = -sin(angle) * moveSpeed * deltaTime
-                let dy =  cos(angle) * moveSpeed * deltaTime
-                playerShip.position.x += dx
-                playerShip.position.y += dy
-
-                let dt = max(deltaTime, 0.001)
-                playerSlideVelocity = CGVector(dx: dx / dt, dy: dy / dt)
-
-            case .backward:
-                let angle = playerShip.zRotation
-                let dx =  sin(angle) * moveSpeed * deltaTime
-                let dy = -cos(angle) * moveSpeed * deltaTime
-                playerShip.position.x += dx
-                playerShip.position.y += dy
-
-                let dt = max(deltaTime, 0.001)
-                playerSlideVelocity = CGVector(dx: dx / dt, dy: dy / dt)
-
-            case .rotateLeft:
-                playerShip.zRotation += rotateSpeed * deltaTime
-
-            case .rotateRight:
-                playerShip.zRotation -= rotateSpeed * deltaTime
-            }
-        } else {
-            // Slide when no input
-            playerShip.position.x += playerSlideVelocity.dx * deltaTime
-            playerShip.position.y += playerSlideVelocity.dy * deltaTime
-
-            let damp = pow(slideDamping, deltaTime * 60)
-            playerSlideVelocity.dx *= damp
-            playerSlideVelocity.dy *= damp
-
-            if abs(playerSlideVelocity.dx) < 5 { playerSlideVelocity.dx = 0 }
-            if abs(playerSlideVelocity.dy) < 5 { playerSlideVelocity.dy = 0 }
-        }
-    }
-
     private func clampPlayerToLevelBounds(_ playerShip: SKSpriteNode) {
         guard let levelNode = levelNode else { return }
 
@@ -353,7 +320,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Update: Continuous Systems
 
     private func updateContinuousSystems(currentTime: TimeInterval, player: SKSpriteNode) {
-        // Continuous particles
         particles.update(in: self,
                          currentTime: currentTime,
                          player: player,
@@ -361,7 +327,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                          enemies: enemies,
                          boss: boss)
 
-        // Environment
         environment.update(in: self, currentTime: currentTime)
     }
 
@@ -399,7 +364,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 e.position.x += v.dx * deltaTime
                 e.position.y += v.dy * deltaTime
 
-                let damp = pow(slideDamping, deltaTime * 60)
+                let damp = pow(enemySlideDamping, deltaTime * 60)
                 v.dx *= damp
                 v.dy *= damp
 
