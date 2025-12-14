@@ -7,15 +7,15 @@ import SpriteKit
 
 extension GameScene {
 
-    // Wird in update(currentTime:) aufgerufen
+    // MARK: - Spawning
+
+    /// Wird in update(currentTime:) aufgerufen
     func handlePowerUpSpawning(currentTime: TimeInterval) {
         // Schon ein Powerup aktiv auf der Map? Dann kein neues
         if activePowerUpNode != nil { return }
 
         // Noch nicht genug Zeit vergangen?
-        if currentTime - lastPowerUpSpawnTime < powerUpMinInterval {
-            return
-        }
+        if currentTime - lastPowerUpSpawnTime < powerUpMinInterval { return }
 
         lastPowerUpSpawnTime = currentTime
         spawnRandomPowerUp()
@@ -90,6 +90,8 @@ extension GameScene {
         activePowerUpNode = sprite
     }
 
+    // MARK: - Pickup
+
     func handlePowerUpPickup(_ node: SKSpriteNode) {
         guard let name = node.name else { return }
 
@@ -113,7 +115,7 @@ extension GameScene {
         }
     }
 
-    // MARK: - Schild aktivieren
+    // MARK: - Shield
 
     func activateShield() {
         guard let ship = playerShip else { return }
@@ -176,5 +178,29 @@ extension GameScene {
 
         ship.addChild(aura)
         shieldNode = aura
+    }
+
+    // MARK: - Durations
+
+    /// Wird in update(currentTime:) aufgerufen (oder aus CombatAndSpawnSystem)
+    func updatePowerUpDurations(currentTime: TimeInterval) {
+        if isTripleShotActive && currentTime >= tripleShotEndTime {
+            isTripleShotActive = false
+            setActivePowerUpLabel(isShieldActive ? "Shield" : nil)
+        }
+
+        if isShieldActive && currentTime >= shieldEndTime {
+            isShieldActive = false
+
+            // Wenn gerade KEINE Invulnerability-Blink aktiv ist: Alpha normalisieren
+            if !isPlayerInvulnerable {
+                playerShip.alpha = 1.0
+            }
+
+            shieldNode?.removeFromParent()
+            shieldNode = nil
+
+            setActivePowerUpLabel(isTripleShotActive ? "Triple Shot" : nil)
+        }
     }
 }

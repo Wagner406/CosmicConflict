@@ -72,12 +72,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // Combat + Spawning
     private var combatAndSpawning = CombatAndSpawnSystem()
 
-
-
-
-
-
-
     // MARK: - Enemies
 
     /// Alle Gegner (Asteroiden + verfolgenden Schiffe)
@@ -216,9 +210,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     private func resetRuntimeState() {
-
-
-
         // Player movement system state
         playerMovement.reset()
 
@@ -227,9 +218,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Combat & spawning system state
         combatAndSpawning.reset()
-
-
-
 
         // flying asteroid timers
         lastAsteroidSpawnTime = 0
@@ -274,6 +262,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         currentTimeForCollisions = currentTime
 
         let deltaTime = computeDeltaTime(currentTime)
+
+        handlePowerUpSpawning(currentTime: currentTime)
+        updatePowerUpDurations(currentTime: currentTime)
 
         // Player movement handled by system
         playerMovement.update(
@@ -389,31 +380,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         }
 
         ship.run(.sequence([repeatBlink, end]), withKey: "invulnBlink")
-
-
-    }
-
-    // MARK: - Powerup Durations
-
-    func updatePowerUpDurations(currentTime: TimeInterval) {
-        if isTripleShotActive && currentTime >= tripleShotEndTime {
-            isTripleShotActive = false
-            setActivePowerUpLabel(isShieldActive ? "Shield" : nil)
-        }
-
-        if isShieldActive && currentTime >= shieldEndTime {
-            isShieldActive = false
-            if !isPlayerInvulnerable {
-
-
-                playerShip.alpha = 1.0
-            }
-
-            shieldNode?.removeFromParent()
-            shieldNode = nil
-
-            setActivePowerUpLabel(isTripleShotActive ? "Triple Shot" : nil)
-        }
     }
 
     // MARK: - Post-Physics
