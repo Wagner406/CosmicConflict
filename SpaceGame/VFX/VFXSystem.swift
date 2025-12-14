@@ -7,131 +7,140 @@
 
 import SpriteKit
 
+// MARK: - VFXSystem (Core)
+
+/// One-shot Effects (Hit-Sparks, Shockwave, SpriteSheet Explosions)
+/// - Adds everything into a dedicated `layer` node (clean scene graph)
+/// - Caches sprite-sheet frames (performance)
+/// - Clean API: no "in scene:" needed after init
 final class VFXSystem {
 
-    // MARK: - Public API
+    // MARK: Performance
 
-    func flashEnemy(_ enemy: SKSpriteNode, isShip: Bool) {
-        let originalColor = enemy.color
-        let originalBlend = enemy.colorBlendFactor
+    /// NOTE: Must be internal (not `private`) because extensions live in other files.
+    let pool = VFXNodePool(maxSparks: 500)
+    let budget = VFXBudget(maxPerFrame: 120)
 
-        let flashColor: SKColor = isShip
-            ? SKColor(red: 0.6, green: 0.95, blue: 1.0, alpha: 1.0)
-            : .white
+    // MARK: Dependencies
 
-        let flashIn = SKAction.run {
-            enemy.color = flashColor
-            enemy.colorBlendFactor = 1.0
-        }
+    private unowned let scene: SKScene
+    private weak var camera: SKCameraNode?
 
-        let wait = SKAction.wait(forDuration: 0.06)
+    // MARK: Layer
 
-        let flashOut = SKAction.run {
-            enemy.color = originalColor
-            enemy.colorBlendFactor = originalBlend
-        }
+    /// All VFX nodes go into this container.
+    /// You can move it above/below other layers via zPosition.
+    let layer = SKNode()
 
-        enemy.run(.sequence([flashIn, wait, flashOut]), withKey: "hitFlash")
+    // MARK: Tuning
+
+    struct Tuning {
+        // Hit
+        var hitFlashDuration: TimeInterval = 0.06
+        var hitSparkDuration: TimeInterval = 0.18
+        var hitSparkDistance: ClosedRange<CGFloat> = 60...120
+        var hitSparkLength: ClosedRange<CGFloat> = 18...32
+        var hitSparkThickness: ClosedRange<CGFloat> = 3...5
+
+        // Explosion sparks
+        var explosionSparkDuration: TimeInterval = 0.35
+        var explosionSparkDistance: ClosedRange<CGFloat> = 80...180
+        var explosionSparkLength: ClosedRange<CGFloat> = 14...26
+        var explosionSparkThickness: ClosedRange<CGFloat> = 3...6
+
+        // Shockwave
+        var shockwaveRadius: CGFloat = 80
+        var shockwaveLineWidth: CGFloat = 6
+        var shockwaveGlowWidth: CGFloat = 10
+        var shockwaveStartScale: CGFloat = 0.2
+        var shockwaveEndScale: CGFloat = 1.4
+        var shockwaveDuration: TimeInterval = 0.18
+
+        // Camera punch + shake
+        var punchScaleMultiplier: CGFloat = 0.92
+        var punchInDuration: TimeInterval = 0.05
+        var punchOutDuration: TimeInterval = 0.12
+        var shakeAmount: CGFloat = 8
+        var shakeDuration: TimeInterval = 0.16
+
+        // Sprite sheet timing
+        var sheetTimePerFrame: TimeInterval = 0.05
+        var sheetFadeOutDuration: TimeInterval = 0.5
+
+        // Asteroid destruction drift
+        var asteroidDriftDuration: TimeInterval = 0.5
     }
 
-    func spawnHitSparks(in scene: SKScene,
-                       at position: CGPoint,
-                       baseColor: SKColor,
-                       count: Int = 10,
-                       zPos: CGFloat = 60) {
-        for _ in 0..<count {
-            let length = CGFloat.random(in: 18...32)
-            let thickness = CGFloat.random(in: 3...5)
+    var tuning = Tuning()
 
-            let spark = SKSpriteNode(color: baseColor, size: CGSize(width: length, height: thickness))
-            spark.position = position
-            spark.zPosition = zPos
-            spark.alpha = 0.95
-            spark.blendMode = .add
-            spark.anchorPoint = CGPoint(x: 0.0, y: 0.5)
+    // MARK: Cached sprite-sheet frames
 
-            let angle = CGFloat.random(in: 0 ..< (.pi * 2))
-            spark.zRotation = angle
+    /// Must be internal for extensions in other files.
+    var cachedEnemyExplosionFrames: [SKTexture]?
+    var cachedAsteroidDestroyFrames: [SKTexture]?
 
-            let distance = CGFloat.random(in: 60...120)
-            let dx = cos(angle) * distance
-            let dy = sin(angle) * distance
+    // MARK: Init
 
-            let duration: TimeInterval = 0.18
-            let move  = SKAction.moveBy(x: dx, y: dy, duration: duration)
-            let fade  = SKAction.fadeOut(withDuration: duration)
-            let scale = SKAction.scaleX(to: 0.2, duration: duration)
+    init(scene: SKScene, camera: SKCameraNode? = nil, zPosition: CGFloat = 900) {
+        self.scene = scene
+        self.camera = camera
 
-            spark.run(.sequence([.group([move, fade, scale]), .removeFromParent()]))
-            scene.addChild(spark)
-        }
+        layer.zPosition = zPosition
+        scene.addChild(layer)
     }
 
-    func spawnExplosionSparks(in scene: SKScene,
-                             at position: CGPoint,
-                             baseColor: SKColor = .yellow,
-                             count: Int = 20,
-                             zPos: CGFloat = 50) {
-        for _ in 0..<count {
-            let length = CGFloat.random(in: 14...26)
-            let thickness = CGFloat.random(in: 3...6)
-
-            let spark = SKSpriteNode(color: baseColor, size: CGSize(width: length, height: thickness))
-            spark.position = position
-            spark.zPosition = zPos
-            spark.alpha = 1.0
-            spark.blendMode = .add
-            spark.anchorPoint = CGPoint(x: 0.0, y: 0.5)
-
-            let angle = CGFloat.random(in: 0 ..< (.pi * 2))
-            spark.zRotation = angle
-
-            let distance = CGFloat.random(in: 80...180)
-            let dx = cos(angle) * distance
-            let dy = sin(angle) * distance
-
-            let duration: TimeInterval = 0.35
-            let move  = SKAction.moveBy(x: dx, y: dy, duration: duration)
-            let fade  = SKAction.fadeOut(withDuration: duration)
-            let scale = SKAction.scaleX(to: 0.2, duration: duration)
-
-            spark.run(.sequence([.group([move, fade, scale]), .removeFromParent()]))
-            scene.addChild(spark)
-        }
+    func setCamera(_ camera: SKCameraNode?) {
+        self.camera = camera
     }
 
-    func triggerExplosionShockwave(in scene: SKScene,
-                                  camera: SKCameraNode?,
-                                  at position: CGPoint) {
-        // Ring
-        let ringRadius: CGFloat = 80
-        let ring = SKShapeNode(circleOfRadius: ringRadius)
-        ring.position = position
-        ring.zPosition = 999
-        ring.strokeColor = .cyan
-        ring.lineWidth = 6
-        ring.glowWidth = 10
-        ring.fillColor = .clear
-        ring.alpha = 0.9
-        ring.setScale(0.2)
+    // MARK: - Frame Budget
 
-        scene.addChild(ring)
+    /// Call once per frame (e.g. at top of GameScene.update).
+    func beginFrame() {
+        budget.beginFrame()
+    }
 
-        let scaleUp = SKAction.scale(to: 1.4, duration: 0.18)
-        let fadeOut = SKAction.fadeOut(withDuration: 0.18)
-        ring.run(.sequence([.group([scaleUp, fadeOut]), .removeFromParent()]))
+    // MARK: - Shared Helpers (Frames)
 
-        // Kamera Punch + Shake
+    func makeFrames(from sheet: SKTexture, rows: Int, cols: Int) -> [SKTexture] {
+        var frames: [SKTexture] = []
+        frames.reserveCapacity(rows * cols)
+
+        // order: top-left -> top-right -> next row ...
+        for row in 0..<rows {
+            for col in 0..<cols {
+                let originX = CGFloat(col) / CGFloat(cols)
+                let originY = 1.0 - CGFloat(row + 1) / CGFloat(rows)
+
+                let rect = CGRect(
+                    x: originX,
+                    y: originY,
+                    width: 1.0 / CGFloat(cols),
+                    height: 1.0 / CGFloat(rows)
+                )
+
+                frames.append(SKTexture(rect: rect, in: sheet))
+            }
+        }
+
+        return frames
+    }
+
+    // MARK: - Shared Helpers (Camera)
+
+    func runCameraPunchAndShake() {
         guard let cam = camera else { return }
 
         let originalScale = cam.xScale
-        let punchIn  = SKAction.scale(to: originalScale * 0.92, duration: 0.05)
-        let punchOut = SKAction.scale(to: originalScale, duration: 0.12)
+        let punchIn  = SKAction.scale(to: originalScale * tuning.punchScaleMultiplier,
+                                      duration: tuning.punchInDuration)
+        let punchOut = SKAction.scale(to: originalScale,
+                                      duration: tuning.punchOutDuration)
         punchIn.timingMode = .easeOut
         punchOut.timingMode = .easeIn
 
-        let shakeAmount: CGFloat = 8
-        let shakeDuration: TimeInterval = 0.16
+        let shakeAmount = tuning.shakeAmount
+        let shakeDuration = tuning.shakeDuration
 
         let moveLeft  = SKAction.moveBy(x: -shakeAmount, y: 0, duration: shakeDuration / 4)
         let moveRight = SKAction.moveBy(x:  shakeAmount * 2, y: 0, duration: shakeDuration / 4)
@@ -141,93 +150,5 @@ final class VFXSystem {
 
         cam.run(.sequence([punchIn, punchOut]))
         cam.run(.sequence([moveLeft, moveRight, moveBack, moveUp, moveDown]))
-    }
-
-    func playEnemyShipExplosion(in scene: SKScene,
-                               camera: SKCameraNode?,
-                               at position: CGPoint,
-                               zPosition: CGFloat,
-                               desiredWidth: CGFloat) {
-        let sheet = SKTexture(imageNamed: "ExplosionEnemyShip")
-        guard sheet.size() != .zero else { return }
-
-        let rows = 2
-        let cols = 3
-        var frames: [SKTexture] = []
-
-        for row in 0..<rows {
-            for col in 0..<cols {
-                let originX = CGFloat(col) / CGFloat(cols)
-                let originY = 1.0 - CGFloat(row + 1) / CGFloat(rows)
-                let rect = CGRect(x: originX, y: originY, width: 1.0 / CGFloat(cols), height: 1.0 / CGFloat(rows))
-                frames.append(SKTexture(rect: rect, in: sheet))
-            }
-        }
-
-        let frameWidth = sheet.size().width / CGFloat(cols)
-        let scale = desiredWidth / frameWidth
-
-        let explosion = SKSpriteNode(texture: frames.first)
-        explosion.setScale(scale)
-        explosion.position = position
-        explosion.zPosition = zPosition + 1
-        explosion.alpha = 1.0
-        explosion.blendMode = .add
-        scene.addChild(explosion)
-
-        triggerExplosionShockwave(in: scene, camera: camera, at: position)
-
-        let animate = SKAction.animate(with: frames, timePerFrame: 0.05)
-        let fadeOut = SKAction.fadeOut(withDuration: 0.5)
-        explosion.run(.sequence([.group([animate, fadeOut]), .removeFromParent()]))
-
-        spawnExplosionSparks(in: scene, at: position, baseColor: .cyan, count: 24, zPos: 60)
-    }
-
-    func playAsteroidDestruction(in scene: SKScene,
-                                asteroid: SKSpriteNode,
-                                savedVelocity: CGVector) {
-        let sheet = SKTexture(imageNamed: "AstroidDestroyed")
-
-        guard sheet.size() != .zero else {
-            asteroid.run(.sequence([.fadeOut(withDuration: 0.15), .removeFromParent()]))
-            return
-        }
-
-        let rows = 3
-        let cols = 2
-        var frames: [SKTexture] = []
-
-        for row in 0..<rows {
-            for col in 0..<cols {
-                let originX = CGFloat(col) / CGFloat(cols)
-                let originY = 1.0 - CGFloat(row + 1) / CGFloat(rows)
-                let rect = CGRect(x: originX, y: originY, width: 1.0 / CGFloat(cols), height: 1.0 / CGFloat(rows))
-                frames.append(SKTexture(rect: rect, in: sheet))
-            }
-        }
-
-        asteroid.physicsBody = nil
-        asteroid.removeAllActions()
-
-        let animate = SKAction.animate(with: frames, timePerFrame: 0.05)
-        let fadeOut = SKAction.fadeOut(withDuration: 0.5)
-
-        let driftDuration: TimeInterval = 0.5
-        let drift = SKAction.moveBy(
-            x: savedVelocity.dx * driftDuration,
-            y: savedVelocity.dy * driftDuration,
-            duration: driftDuration
-        )
-
-        asteroid.run(.sequence([.group([animate, fadeOut, drift]), .removeFromParent()]))
-
-        spawnExplosionSparks(
-            in: scene,
-            at: asteroid.position,
-            baseColor: SKColor(red: 0.7, green: 0.5, blue: 0.3, alpha: 1.0),
-            count: 18,
-            zPos: asteroid.zPosition + 1
-        )
     }
 }

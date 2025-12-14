@@ -60,7 +60,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private let particles = ParticleSystem()
 
     // VFX (one-shot)
-    private let vfx = VFXSystem()
+    private var vfx: VFXSystem!
 
     // MARK: - Enemies
 
@@ -77,7 +77,6 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     let moveSpeed: CGFloat = 400
     let rotateSpeed: CGFloat = 4
-
     let enemyMoveSpeed: CGFloat = 90
 
     // Stop-Slide (nur beim Loslassen)
@@ -180,7 +179,16 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         environment.buildForCurrentLevel(in: self)
         setupEnemies()
         setupPlayerShip()
+
+        // --- Camera setup must happen before VFX init ---
         setupCamera()
+
+        // IMPORTANT: Ensure SpriteKit actually uses our camera node (needed for shake/punch)
+        self.camera = cameraNode
+
+        // VFX init AFTER camera exists
+        vfx = VFXSystem(scene: self, camera: cameraNode, zPosition: 900)
+        vfx.setCamera(cameraNode)
 
         // Slide-Init
         playerSlideVelocity = .zero
@@ -209,7 +217,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             setupBossIfNeeded()
             setupBossHUD()
             updateBossHUD()
+
             cameraNode.setScale(bossCameraZoom)
+
+            // Robust: make sure VFX always points to the active camera
+            vfx.setCamera(cameraNode)
         }
     }
 
@@ -240,11 +252,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
             // Boss special case
             if let b = boss, enemyNode == b {
-                vfx.spawnHitSparks(in: self,
-                                  at: contact.contactPoint,
-                                  baseColor: .cyan,
-                                  count: 14,
-                                  zPos: b.zPosition + 3)
+                vfx.spawnHitSparks(
+                    at: contact.contactPoint,
+                    baseColor: .cyan,
+                    count: 14,
+                    zPos: b.zPosition + 3
+                )
 
                 applyDamageToBoss(b, amount: 1)
                 return
@@ -253,17 +266,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             let isShip = enemyShips.contains(enemyNode)
 
             // Flash + Hit sparks
-            vfx.flashEnemy(enemyNode, isShip: isShip)
-
-            let sparkColor: SKColor = isShip
-                ? SKColor(red: 0.4, green: 0.9, blue: 1.0, alpha: 1.0)
-                : SKColor(red: 1.0, green: 0.85, blue: 0.45, alpha: 1.0)
-
-            vfx.spawnHitSparks(in: self,
-                              at: contact.contactPoint,
-                              baseColor: sparkColor,
-                              count: isShip ? 12 : 9,
-                              zPos: enemyNode.zPosition + 2)
+            vfx.playHitImpact(
+                on: enemyNode,
+                isShip: isShip,
+                at: contact.contactPoint,
+                zPos: enemyNode.zPosition + 2,
+                sparkCount: isShip ? 12 : 9
+            )
 
             // HP logic
             if enemyNode.userData == nil { enemyNode.userData = NSMutableDictionary() }
@@ -279,11 +288,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
                     SoundManager.shared.playRandomExplosion(in: self)
 
-                    vfx.playEnemyShipExplosion(in: self,
-                                               camera: cameraNode,
-                                               at: enemyNode.position,
-                                               zPosition: enemyNode.zPosition,
-                                               desiredWidth: size.width * 0.3)
+                    vfx.playEnemyShipExplosion(
+                        at: enemyNode.position,
+                        zPosition: enemyNode.zPosition,
+                        desiredWidth: size.width * 0.3
+                    )
 
                     enemyNode.removeAllActions()
                     enemyNode.physicsBody = nil
@@ -292,7 +301,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                     // Asteroid
                     SoundManager.shared.playRandomExplosion(in: self)
                     let savedVelocity = enemyNode.physicsBody?.velocity ?? .zero
-                    vfx.playAsteroidDestruction(in: self, asteroid: enemyNode, savedVelocity: savedVelocity)
+                    vfx.playAsteroidDestruction(on: enemyNode, savedVelocity: savedVelocity)
                 }
 
                 enemies.removeAll { $0 == enemyNode }
@@ -340,6 +349,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     override func update(_ currentTime: TimeInterval) {
         guard let playerShip = playerShip, !isLevelCompleted else { return }
+
+        // Begin VFX budget frame (safe even if you ever make vfx optional later)
+        vfx?.beginFrame()
 
         currentTimeForCollisions = currentTime
 
