@@ -7,7 +7,7 @@
 
 import SpriteKit
 
-class GameScene: SKScene, SKPhysicsContactDelegate {
+final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // MARK: - Input
 
@@ -168,8 +168,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Lifecycle
 
     override func didMove(to view: SKView) {
-        physicsWorld.gravity = .zero
-        physicsWorld.contactDelegate = self
+        configurePhysics()
 
         if level == nil {
             level = GameLevels.level1
@@ -180,28 +179,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         setupEnemies()
         setupPlayerShip()
 
-        // --- Camera setup must happen before VFX init ---
+        // Camera must exist before VFX init
         setupCamera()
-
-        // IMPORTANT: Ensure SpriteKit actually uses our camera node (needed for shake/punch)
         self.camera = cameraNode
 
         // VFX init AFTER camera exists
         vfx = VFXSystem(scene: self, camera: cameraNode, zPosition: 900)
         vfx.setCamera(cameraNode)
 
-        // Slide-Init
-        playerSlideVelocity = .zero
-        enemySlideVelocities.removeAll()
-
-        // fliegende Asteroiden
-        lastAsteroidSpawnTime = 0
-        nextAsteroidSpawnInterval = TimeInterval.random(in: 10...20)
-
-        // Powerup-Timer initialisieren
-        lastPowerUpSpawnTime = 0
-
-        particles.reset()
+        resetRuntimeState()
 
         // Musik erst starten, nachdem die Kamera existiert
         SoundManager.shared.startMusicIfNeeded(for: level.id, in: self)
@@ -225,6 +211,26 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
+    private func configurePhysics() {
+        physicsWorld.gravity = .zero
+        physicsWorld.contactDelegate = self
+    }
+
+    private func resetRuntimeState() {
+        // Slide-Init
+        playerSlideVelocity = .zero
+        enemySlideVelocities.removeAll()
+
+        // fliegende Asteroiden
+        lastAsteroidSpawnTime = 0
+        nextAsteroidSpawnInterval = TimeInterval.random(in: 10...20)
+
+        // Powerup-Timer initialisieren
+        lastPowerUpSpawnTime = 0
+
+        particles.reset()
+    }
+
     // MARK: - Touch
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -232,106 +238,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     // MARK: - Physics Contacts
-
-    func didBegin(_ contact: SKPhysicsContact) {
-        let (first, second): (SKPhysicsBody, SKPhysicsBody)
-        if contact.bodyA.categoryBitMask < contact.bodyB.categoryBitMask {
-            first = contact.bodyA
-            second = contact.bodyB
-        } else {
-            first = contact.bodyB
-            second = contact.bodyA
-        }
-
-        // Player bullet hits enemy
-        if first.categoryBitMask == PhysicsCategory.bullet &&
-            second.categoryBitMask == PhysicsCategory.enemy {
-
-            first.node?.removeFromParent()
-            guard let enemyNode = second.node as? SKSpriteNode else { return }
-
-            // Boss special case
-            if let b = boss, enemyNode == b {
-                vfx.spawnHitSparks(
-                    at: contact.contactPoint,
-                    baseColor: .cyan,
-                    count: 14,
-                    zPos: b.zPosition + 3
-                )
-
-                applyDamageToBoss(b, amount: 1)
-                return
-            }
-
-            let isShip = enemyShips.contains(enemyNode)
-
-            // Flash + Hit sparks
-            vfx.playHitImpact(
-                on: enemyNode,
-                isShip: isShip,
-                at: contact.contactPoint,
-                zPos: enemyNode.zPosition + 2,
-                sparkCount: isShip ? 12 : 9
-            )
-
-            // HP logic
-            if enemyNode.userData == nil { enemyNode.userData = NSMutableDictionary() }
-            let currentHP = (enemyNode.userData?["hp"] as? Int) ?? 1
-            let newHP = max(0, currentHP - 1)
-
-            enemyNode.userData?["hp"] = newHP
-            updateEnemyHealthBar(for: enemyNode)
-
-            if newHP <= 0 {
-                if enemyShips.contains(enemyNode) {
-                    registerEnemyShipKilled(enemyNode)
-
-                    SoundManager.shared.playRandomExplosion(in: self)
-
-                    vfx.playEnemyShipExplosion(
-                        at: enemyNode.position,
-                        zPosition: enemyNode.zPosition,
-                        desiredWidth: size.width * 0.3
-                    )
-
-                    enemyNode.removeAllActions()
-                    enemyNode.physicsBody = nil
-                    enemyNode.removeFromParent()
-                } else {
-                    // Asteroid
-                    SoundManager.shared.playRandomExplosion(in: self)
-                    let savedVelocity = enemyNode.physicsBody?.velocity ?? .zero
-                    vfx.playAsteroidDestruction(on: enemyNode, savedVelocity: savedVelocity)
-                }
-
-                enemies.removeAll { $0 == enemyNode }
-            }
-        }
-
-        // Enemy bullet hits player
-        if first.categoryBitMask == PhysicsCategory.player &&
-            second.categoryBitMask == PhysicsCategory.enemyBullet {
-
-            second.node?.removeFromParent()
-            applyDamageToPlayer(amount: 10)
-        }
-
-        // Enemy rams player
-        if first.categoryBitMask == PhysicsCategory.player &&
-            second.categoryBitMask == PhysicsCategory.enemy {
-
-            applyDamageToPlayer(amount: 5)
-        }
-
-        // Player picks up powerup
-        if first.categoryBitMask == PhysicsCategory.player &&
-            second.categoryBitMask == PhysicsCategory.powerUp {
-
-            if let node = second.node as? SKSpriteNode {
-                handlePowerUpPickup(node)
-            }
-        }
-    }
+    //
+    // IMPORTANT:
+    // `didBegin(_:)` has been moved into ContactRouter.swift (extension GameScene).
+    // Keep ONLY ONE didBegin implementation in the project to avoid redeclaration issues.
 
     // MARK: - SwiftUI Controls
 
@@ -350,11 +260,25 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     override func update(_ currentTime: TimeInterval) {
         guard let playerShip = playerShip, !isLevelCompleted else { return }
 
-        // Begin VFX budget frame (safe even if you ever make vfx optional later)
         vfx?.beginFrame()
-
         currentTimeForCollisions = currentTime
 
+        let deltaTime = computeDeltaTime(currentTime)
+
+        updatePlayerMovement(playerShip, deltaTime: deltaTime)
+        clampPlayerToLevelBounds(playerShip)
+
+        updateContinuousSystems(currentTime: currentTime, player: playerShip)
+
+        updateEnemySlideAndChaser(deltaTime: deltaTime)
+
+        // Camera follows player
+        cameraNode.position = playerShip.position
+
+        updateCombatAndSpawning(currentTime: currentTime)
+    }
+
+    private func computeDeltaTime(_ currentTime: TimeInterval) -> CGFloat {
         let deltaTime: CGFloat
         if lastUpdateTime == 0 {
             deltaTime = 0
@@ -362,10 +286,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             deltaTime = CGFloat(currentTime - lastUpdateTime)
         }
         lastUpdateTime = currentTime
+        return deltaTime
+    }
 
-        // =========================
-        // Player movement + slide
-        // =========================
+    // MARK: - Update: Player Movement + Slide
+
+    private func updatePlayerMovement(_ playerShip: SKSpriteNode, deltaTime: CGFloat) {
         if let direction = currentDirection {
             switch direction {
             case .forward:
@@ -395,6 +321,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 playerShip.zRotation -= rotateSpeed * deltaTime
             }
         } else {
+            // Slide when no input
             playerShip.position.x += playerSlideVelocity.dx * deltaTime
             playerShip.position.y += playerSlideVelocity.dy * deltaTime
 
@@ -405,36 +332,43 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             if abs(playerSlideVelocity.dx) < 5 { playerSlideVelocity.dx = 0 }
             if abs(playerSlideVelocity.dy) < 5 { playerSlideVelocity.dy = 0 }
         }
+    }
 
-        // Player in bounds
-        if let levelNode = levelNode {
-            let marginX = playerShip.size.width / 2
-            let marginY = playerShip.size.height / 2
+    private func clampPlayerToLevelBounds(_ playerShip: SKSpriteNode) {
+        guard let levelNode = levelNode else { return }
 
-            let minX = levelNode.frame.minX + marginX
-            let maxX = levelNode.frame.maxX - marginX
-            let minY = levelNode.frame.minY + marginY
-            let maxY = levelNode.frame.maxY - marginY
+        let marginX = playerShip.size.width / 2
+        let marginY = playerShip.size.height / 2
 
-            let clampedX = max(minX, min(maxX, playerShip.position.x))
-            let clampedY = max(minY, min(maxY, playerShip.position.y))
-            playerShip.position = CGPoint(x: clampedX, y: clampedY)
-        }
+        let minX = levelNode.frame.minX + marginX
+        let maxX = levelNode.frame.maxX - marginX
+        let minY = levelNode.frame.minY + marginY
+        let maxY = levelNode.frame.maxY - marginY
 
+        let clampedX = max(minX, min(maxX, playerShip.position.x))
+        let clampedY = max(minY, min(maxY, playerShip.position.y))
+        playerShip.position = CGPoint(x: clampedX, y: clampedY)
+    }
+
+    // MARK: - Update: Continuous Systems
+
+    private func updateContinuousSystems(currentTime: TimeInterval, player: SKSpriteNode) {
         // Continuous particles
         particles.update(in: self,
                          currentTime: currentTime,
-                         player: playerShip,
+                         player: player,
                          enemyShips: enemyShips,
                          enemies: enemies,
                          boss: boss)
 
         // Environment
         environment.update(in: self, currentTime: currentTime)
+    }
 
-        // =========================
-        // Enemy slide if not moved
-        // =========================
+    // MARK: - Update: Enemy Slide + AI
+
+    private func updateEnemySlideAndChaser(deltaTime: CGFloat) {
+        // Snapshot positions before AI movement
         var enemyPrePos: [ObjectIdentifier: CGPoint] = [:]
         for e in enemyShips {
             enemyPrePos[ObjectIdentifier(e)] = e.position
@@ -443,8 +377,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
 
+        // AI movement (your AI.swift)
         updateChaser(deltaTime: deltaTime)
 
+        // Slide for ships that didn't move this frame
         let dtE = max(deltaTime, 0.001)
         for e in enemyShips {
             let key = ObjectIdentifier(e)
@@ -473,11 +409,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 enemySlideVelocities[key] = v
             }
         }
+    }
 
-        // Camera follows player
-        cameraNode.position = playerShip.position
+    // MARK: - Update: Combat + Spawning
 
-        // Combat + spawns
+    private func updateCombatAndSpawning(currentTime: TimeInterval) {
         handleEnemyShooting(currentTime: currentTime)
         handleFlyingAsteroidSpawning(currentTime: currentTime)
         handlePowerUpSpawning(currentTime: currentTime)
