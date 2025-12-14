@@ -60,7 +60,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private let particles = ParticleSystem()
 
     // VFX (one-shot)
-    private var vfx: VFXSystem!
+    var vfx: VFXSystem!
 
     // MARK: - Enemies
 

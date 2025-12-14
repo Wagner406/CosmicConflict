@@ -7,13 +7,75 @@
 
 import SpriteKit
 
-// MARK: - Projectiles / Weapons (Muzzle Flash, Ghost Trail, Spawn Pop)
+// MARK: - Projectiles / Weapons (Bullet Look, Muzzle Flash, Ghost Trail, Spawn Pop)
 
 extension VFXSystem {
 
-    // MARK: Spawn Pop
+    // MARK: - Bullet Look (Nice glow, still cheap enough)
 
-    /// Small scale-pop when spawning a projectile (purely visual).
+    /// Player bullet look: 2 shape nodes (core + glow).
+    /// Looks like your original, but keeps everything inside VFX.
+    func applyPlayerBulletLook(to bullet: SKSpriteNode) {
+        bullet.removeAllChildren()
+
+        let w = bullet.size.width
+        let h = bullet.size.height
+
+        let coreSize = CGSize(width: w * 0.55, height: h * 0.85)
+        let radius = coreSize.width / 2
+
+        // Core
+        let core = SKShapeNode(rectOf: coreSize, cornerRadius: radius)
+        core.fillColor = SKColor(red: 0.8, green: 0.95, blue: 1.0, alpha: 1.0)
+        core.strokeColor = .clear
+        core.glowWidth = coreSize.height * 0.9
+        core.alpha = 0.95
+        core.blendMode = .add
+        core.zPosition = 0
+        bullet.addChild(core)
+
+        // Outer glow
+        let outer = SKShapeNode(rectOf: coreSize, cornerRadius: radius)
+        outer.fillColor = SKColor(red: 0.2, green: 0.6, blue: 1.0, alpha: 1.0)
+        outer.strokeColor = .clear
+        outer.glowWidth = coreSize.height * 1.3
+        outer.alpha = 0.9
+        outer.blendMode = .add
+        outer.zPosition = -1
+        bullet.addChild(outer)
+    }
+
+    /// Enemy bullet look: 2 shape nodes (core + glow).
+    func applyEnemyBulletLook(to bullet: SKSpriteNode) {
+        bullet.removeAllChildren()
+
+        let w = bullet.size.width
+        let h = bullet.size.height
+
+        let coreSize = CGSize(width: w * 0.6, height: h * 0.9)
+        let radius = coreSize.width / 2
+
+        let core = SKShapeNode(rectOf: coreSize, cornerRadius: radius)
+        core.fillColor = SKColor(red: 1.0, green: 0.85, blue: 0.7, alpha: 1.0)
+        core.strokeColor = .clear
+        core.glowWidth = coreSize.height * 1.0
+        core.alpha = 0.95
+        core.blendMode = .add
+        core.zPosition = 0
+        bullet.addChild(core)
+
+        let outer = SKShapeNode(rectOf: coreSize, cornerRadius: radius)
+        outer.fillColor = SKColor(red: 1.0, green: 0.25, blue: 0.15, alpha: 1.0)
+        outer.strokeColor = .clear
+        outer.glowWidth = coreSize.height * 1.4
+        outer.alpha = 0.9
+        outer.blendMode = .add
+        outer.zPosition = -1
+        bullet.addChild(outer)
+    }
+
+    // MARK: - Spawn Pop
+
     func applySpawnPop(to node: SKNode,
                        from startScale: CGFloat = 0.6,
                        to endScale: CGFloat = 1.0,
@@ -24,10 +86,8 @@ extension VFXSystem {
         node.run(pop, withKey: "vfx.spawnPop")
     }
 
-    // MARK: Ghost Trail (pooled)
+    // MARK: - Ghost Trail (pooled)
 
-    /// Lightweight ghost trail using pooled sprite nodes (no SKShapeNode spam).
-    /// Attach this to bullets (player + enemy).
     func attachGhostTrail(to bullet: SKSpriteNode,
                           color: SKColor,
                           spawnInterval: TimeInterval = 0.028,
@@ -43,7 +103,6 @@ extension VFXSystem {
             guard let self, let bullet else { return }
             guard self.budget.allow(1) else { return }
 
-            // behind the projectile (local -Y)
             let angle = bullet.zRotation
             let dist  = bullet.size.height * 0.4
 
@@ -57,7 +116,7 @@ extension VFXSystem {
 
             let s = CGFloat.random(in: dotSize)
             let dot = self.pool.makeSpark(color: color)
-            dot.size = CGSize(width: s, height: s) // square "dot" (cheap)
+            dot.size = CGSize(width: s, height: s)
             dot.position = pos
             dot.zPosition = bullet.zPosition + zOffset
             dot.alpha = alpha
@@ -84,50 +143,41 @@ extension VFXSystem {
         bullet.run(.repeatForever(seq), withKey: "vfx.ghostTrail")
     }
 
-    // MARK: Muzzle Flash
+    // MARK: - Muzzle Flash (uses your tuning)
 
-    /// Short muzzle flash at the muzzle position.
-    /// Uses pooled nodes for beam + sparks (cheap) and a single SKShapeNode for the bright core (okay).
     func spawnMuzzleFlash(at position: CGPoint,
                           directionAngle: CGFloat,
-                          zPos: CGFloat,
-                          coreRadius: CGFloat = 14,
-                          beamLength: CGFloat = 36,
-                          beamThickness: CGFloat = 10,
-                          sparkCount: Int = 4) {
+                          zPos: CGFloat) {
 
-        // If the frame is already busy, skip extra sparks first.
-        // (Core + beam are cheap-ish, sparks are the noisy part.)
-        let allowSparks = budget.allow(max(0, sparkCount))
+        // Core + beam should render, sparks optional
+        guard budget.allow(2) else { return }
 
-        // 1) bright core (single shape node)
-        let core = SKShapeNode(circleOfRadius: coreRadius)
+        // 1) Core
+        let core = SKShapeNode(circleOfRadius: tuning.muzzleCoreRadius)
         core.position = position
         core.zPosition = zPos
         core.fillColor = .white
         core.strokeColor = .clear
-        core.glowWidth = coreRadius * 2.0
-        core.alpha = 0.95
+        core.glowWidth = tuning.muzzleCoreGlow
+        core.alpha = tuning.muzzleCoreAlpha
         core.blendMode = .add
         layer.addChild(core)
 
-        let coreDuration: TimeInterval = 0.06
-        let coreFade  = SKAction.fadeOut(withDuration: coreDuration)
-        let coreScale = SKAction.scale(to: 0.4, duration: coreDuration)
+        let coreFade  = SKAction.fadeOut(withDuration: tuning.muzzleCoreDuration)
+        let coreScale = SKAction.scale(to: 0.4, duration: tuning.muzzleCoreDuration)
         core.run(.sequence([.group([coreFade, coreScale]), .removeFromParent()]))
 
-        // 2) forward beam (pooled)
+        // 2) Beam (pooled)
         let beam = pool.makeSpark(color: SKColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 1.0))
-        beam.size = CGSize(width: beamLength, height: beamThickness)
+        beam.size = CGSize(width: tuning.muzzleBeamLength, height: tuning.muzzleBeamThickness)
         beam.position = position
         beam.zPosition = zPos
-        beam.alpha = 0.9
+        beam.alpha = tuning.muzzleBeamAlpha
         beam.zRotation = directionAngle
         layer.addChild(beam)
 
-        let beamDuration: TimeInterval = 0.07
-        let beamFade  = SKAction.fadeOut(withDuration: beamDuration)
-        let beamScale = SKAction.scaleX(to: 0.2, duration: beamDuration)
+        let beamFade  = SKAction.fadeOut(withDuration: tuning.muzzleBeamDuration)
+        let beamScale = SKAction.scaleX(to: 0.2, duration: tuning.muzzleBeamDuration)
 
         let recycleBeam = SKAction.run { [weak self, weak beam] in
             guard let self, let beam else { return }
@@ -136,12 +186,16 @@ extension VFXSystem {
 
         beam.run(.sequence([.group([beamFade, beamScale]), recycleBeam]))
 
-        // 3) tiny muzzle sparks (pooled)
-        guard allowSparks, sparkCount > 0 else { return }
+        // 3) Sparks (optional + budget)
+        var allowedSparks = 0
+        for _ in 0..<tuning.muzzleSparkCount {
+            if budget.allow(1) { allowedSparks += 1 } else { break }
+        }
+        guard allowedSparks > 0 else { return }
 
-        for _ in 0..<sparkCount {
-            let sLength: CGFloat = CGFloat.random(in: 10...18)
-            let sThickness: CGFloat = 3
+        for _ in 0..<allowedSparks {
+            let sLength = CGFloat.random(in: tuning.muzzleSparkLength)
+            let sThickness: CGFloat = tuning.muzzleSparkThickness
 
             let spark = pool.makeSpark(color: SKColor(red: 0.5, green: 0.8, blue: 1.0, alpha: 1.0))
             spark.size = CGSize(width: sLength, height: sThickness)
@@ -153,13 +207,13 @@ extension VFXSystem {
             let a = directionAngle + jitter
             spark.zRotation = a
 
-            let dist: CGFloat = CGFloat.random(in: 18...36)
+            let dist = CGFloat.random(in: tuning.muzzleSparkDistance)
             let dx = cos(a) * dist
             let dy = sin(a) * dist
 
             layer.addChild(spark)
 
-            let dur: TimeInterval = 0.09
+            let dur = tuning.muzzleSparkDuration
             let move  = SKAction.moveBy(x: dx, y: dy, duration: dur)
             let fade  = SKAction.fadeOut(withDuration: dur)
             let scale = SKAction.scaleX(to: 0.2, duration: dur)

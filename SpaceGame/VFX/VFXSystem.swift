@@ -9,10 +9,10 @@ import SpriteKit
 
 // MARK: - VFXSystem (Core)
 
-/// One-shot Effects (Hit-Sparks, Shockwave, SpriteSheet Explosions)
+/// One-shot Effects (Hit-Sparks, Shockwave, SpriteSheet Explosions, Projectiles)
 /// - Adds everything into a dedicated `layer` node (clean scene graph)
 /// - Caches sprite-sheet frames (performance)
-/// - Clean API: no "in scene:" needed after init
+/// - Budget + Pool to avoid per-frame spikes
 final class VFXSystem {
 
     // MARK: Performance
@@ -69,13 +69,29 @@ final class VFXSystem {
 
         // Asteroid destruction drift
         var asteroidDriftDuration: TimeInterval = 0.5
+
+        // MARK: Projectiles (Muzzle Flash)
+        var muzzleCoreRadius: CGFloat = 6
+        var muzzleCoreGlow: CGFloat = 12
+        var muzzleCoreAlpha: CGFloat = 0.95
+        var muzzleCoreDuration: TimeInterval = 0.06
+
+        var muzzleBeamLength: CGFloat = 34
+        var muzzleBeamThickness: CGFloat = 8
+        var muzzleBeamAlpha: CGFloat = 0.9
+        var muzzleBeamDuration: TimeInterval = 0.07
+
+        var muzzleSparkCount: Int = 4
+        var muzzleSparkDuration: TimeInterval = 0.09
+        var muzzleSparkDistance: ClosedRange<CGFloat> = 18...36
+        var muzzleSparkLength: ClosedRange<CGFloat> = 10...18
+        var muzzleSparkThickness: CGFloat = 3
     }
 
     var tuning = Tuning()
 
-    // MARK: Cached sprite-sheet frames
+    // MARK: Cached sprite-sheet frames (internal for extensions)
 
-    /// Must be internal for extensions in other files.
     var cachedEnemyExplosionFrames: [SKTexture]?
     var cachedAsteroidDestroyFrames: [SKTexture]?
 
@@ -93,14 +109,14 @@ final class VFXSystem {
         self.camera = camera
     }
 
-    // MARK: - Frame Budget
+    // MARK: Frame Budget
 
     /// Call once per frame (e.g. at top of GameScene.update).
     func beginFrame() {
         budget.beginFrame()
     }
 
-    // MARK: - Shared Helpers (Frames)
+    // MARK: Shared Helpers (Frames)
 
     func makeFrames(from sheet: SKTexture, rows: Int, cols: Int) -> [SKTexture] {
         var frames: [SKTexture] = []
@@ -126,7 +142,7 @@ final class VFXSystem {
         return frames
     }
 
-    // MARK: - Shared Helpers (Camera)
+    // MARK: Shared Helpers (Camera)
 
     func runCameraPunchAndShake() {
         guard let cam = camera else { return }
