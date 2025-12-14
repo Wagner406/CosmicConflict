@@ -69,6 +69,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var enemySlideSystem = EnemySlideSystem()
     private let enemySlideDamping: CGFloat = 0.86
 
+    // Combat + Spawning
+    private var combatAndSpawning = CombatAndSpawnSystem()
+
     // MARK: - Enemies
 
     /// Alle Gegner (Asteroiden + verfolgenden Schiffe)
@@ -213,6 +216,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         // Enemy slide system state
         enemySlideSystem.reset()
 
+        // Combat & spawning system state
+        combatAndSpawning.reset()
+
         // flying asteroid timers
         lastAsteroidSpawnTime = 0
         nextAsteroidSpawnInterval = TimeInterval.random(in: 10...20)
@@ -275,7 +281,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         // Camera follows player
         cameraNode.position = playerShip.position
 
-        updateCombatAndSpawning(currentTime: currentTime)
+        // Combat + spawning handled by system
+        combatAndSpawning.update(scene: self, currentTime: currentTime)
     }
 
     private func computeDeltaTime(_ currentTime: TimeInterval) -> CGFloat {
@@ -333,21 +340,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             deltaTime: deltaTime,
             damping: enemySlideDamping
         )
-    }
-
-    // MARK: - Update: Combat + Spawning
-
-    private func updateCombatAndSpawning(currentTime: TimeInterval) {
-        handleEnemyShooting(currentTime: currentTime)
-        handleFlyingAsteroidSpawning(currentTime: currentTime)
-        handlePowerUpSpawning(currentTime: currentTime)
-        updatePowerUpDurations(currentTime: currentTime)
-
-        if level.type == .normal {
-            handleEnemyWaveSpawning(currentTime: currentTime)
-        } else if level.type == .boss {
-            updateBossFight(currentTime: currentTime)
-        }
     }
 
     // MARK: - Player Damage
