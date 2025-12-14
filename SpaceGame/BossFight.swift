@@ -429,7 +429,7 @@ extension GameScene {
         bossPhaseLabel = nil
 
         SoundManager.shared.playRandomExplosion(in: self)
-        playEnemyShipExplosion(at: boss.position, zPosition: boss.zPosition)
+        //playEnemyShipExplosion(at: boss.position, zPosition: boss.zPosition)
 
         boss.removeAllActions()
         boss.physicsBody = nil
