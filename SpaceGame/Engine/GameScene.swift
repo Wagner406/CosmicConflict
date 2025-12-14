@@ -9,6 +9,8 @@ import SpriteKit
 
 class GameScene: SKScene, SKPhysicsContactDelegate {
 
+    // MARK: - Input
+
     enum TankDirection {
         case forward
         case backward
@@ -24,17 +26,43 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     /// Callback, um nach Level-Ende zurück ins Menü zu springen
     var onLevelCompleted: (() -> Void)?
 
-    // MARK: - Properties
+    // MARK: - Nodes
 
     var playerShip: SKSpriteNode!
     var levelNode: SKNode!
-    
+
+    // Background
+    var spaceBackground: SKSpriteNode?
+
+    // HUD
+    let hudNode = SKNode()
+    var playerHealthBar: SKSpriteNode?
+    var powerUpLabel: SKLabelNode?
+    var roundLabel: SKLabelNode?
+
+    // Boss HUD
+    var bossHealthBarBg: SKShapeNode?
+    var bossHealthBarFill: SKShapeNode?
+    var bossHealthLabel: SKLabelNode?
+    var bossPhaseLabel: SKLabelNode?
+
+    // Camera
+    let cameraNode = SKCameraNode()
+    let cameraZoom: CGFloat = 1.5
+    let bossCameraZoom: CGFloat = 2.1
+
+    // MARK: - Systems
+
     // Environment (Stars, ToxicGas, Nebula, ShootingStars)
     private let environment = EnvironmentSystem()
-    // Particle
+
+    // Particle (continuous)
     private let particles = ParticleSystem()
-    
-    let bossCameraZoom: CGFloat = 2.1   // ✅ weiter raus (normal cameraZoom ist 1.5)
+
+    // VFX (one-shot)
+    private let vfx = VFXSystem()
+
+    // MARK: - Enemies
 
     /// Alle Gegner (Asteroiden + verfolgenden Schiffe)
     var enemies: [SKSpriteNode] = []
@@ -42,30 +70,24 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     /// Nur die verfolgenden Gegner-Schiffe (für AI, Schießen, Runden)
     var enemyShips: [SKSpriteNode] = []
 
+    // MARK: - Movement
+
     var currentDirection: TankDirection?
     var lastUpdateTime: TimeInterval = 0
 
-    let moveSpeed: CGFloat = 400      // Spieler-Bewegung
-    let rotateSpeed: CGFloat = 4      // Spieler-Rotation
+    let moveSpeed: CGFloat = 400
+    let rotateSpeed: CGFloat = 4
 
-    let enemyMoveSpeed: CGFloat = 90  // Verfolger-Geschwindigkeit
+    let enemyMoveSpeed: CGFloat = 90
 
     // Stop-Slide (nur beim Loslassen)
     private var playerSlideVelocity = CGVector(dx: 0, dy: 0)
-    private let slideDamping: CGFloat = 0.86   // 0.82 = kürzer, 0.90 = länger
+    private let slideDamping: CGFloat = 0.86
 
     // Stop-Slide für Gegner-Schiffe (nur wenn sie in einem Frame nicht aktiv bewegt wurden)
     private var enemySlideVelocities: [ObjectIdentifier: CGVector] = [:]
-    
-    // Boss HUD
-    var bossHealthBarBg: SKShapeNode?
-    var bossHealthBarFill: SKShapeNode?
-    var bossHealthLabel: SKLabelNode?
-    var bossPhaseLabel: SKLabelNode?
 
-    // Kamera
-    let cameraNode = SKCameraNode()
-    let cameraZoom: CGFloat = 1.5
+    // MARK: - Combat / Timers
 
     // Gegner-Feuerrate
     let enemyFireInterval: TimeInterval = 1.5
@@ -76,25 +98,17 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     var nextAsteroidSpawnInterval: TimeInterval = 0
     let maxFlyingAsteroids = 4
 
-    // Hintergrund
-    var spaceBackground: SKSpriteNode?
-    
-    // Spieler-HP / Runden
+    // MARK: - Player HP / Rounds
+
     var playerMaxHP: Int = 100
     var playerHP: Int = 100
 
-    var roundLabel: SKLabelNode?
     /// Aktuelle Runde (1–5 … oder passend zur Level-Config)
     var currentRound: Int = 1
 
-    // HUD
-    let hudNode = SKNode()
-    var playerHealthBar: SKSpriteNode?
-    var powerUpLabel: SKLabelNode?      // Text oben rechts
-
     // Hit-Cooldown für den Spieler
     var playerLastHitTime: TimeInterval = 0
-    let playerHitCooldown: TimeInterval = 1.0   // Sekunden Unverwundbarkeit
+    let playerHitCooldown: TimeInterval = 1.0
     var isPlayerInvulnerable: Bool = false
 
     // Zeit aus update(), damit didBegin weiß, welche Zeit gilt
@@ -121,7 +135,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     var shieldEndTime: TimeInterval = 0
     var shieldNode: SKSpriteNode?
 
-    // MARK: - Runden/Waves
+    // MARK: - Rounds / Waves
 
     /// Letzte Zeit, zu der ein Gegner-Schiff gespawnt wurde
     var lastEnemySpawnTime: TimeInterval = 0
@@ -158,19 +172,18 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         physicsWorld.gravity = .zero
         physicsWorld.contactDelegate = self
 
-        // Falls aus irgendeinem Grund kein Level gesetzt wurde → Fallback
         if level == nil {
             level = GameLevels.level1
         }
 
-        setupLevel()        // nutzt jetzt LevelFactory und GameLevel
-        environment.buildForCurrentLevel(in: self)      // Stars, Gas, Nebula, ShootingStars
-        setupEnemies()      // Start-Asteroiden, evtl. später Boss-Setup
+        setupLevel()
+        environment.buildForCurrentLevel(in: self)
+        setupEnemies()
         setupPlayerShip()
-        setupCamera()       // ruft auch setupHUD() auf
+        setupCamera()
 
         // Slide-Init
-        playerSlideVelocity = CGVector(dx: 0, dy: 0)
+        playerSlideVelocity = .zero
         enemySlideVelocities.removeAll()
 
         // fliegende Asteroiden
@@ -179,10 +192,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Powerup-Timer initialisieren
         lastPowerUpSpawnTime = 0
-        
+
         particles.reset()
 
-        // ✅ FIX: Musik erst starten, nachdem die Kamera existiert (SoundManager hängt Audio an camera wenn vorhanden)
+        // Musik erst starten, nachdem die Kamera existiert
         SoundManager.shared.startMusicIfNeeded(for: level.id, in: self)
 
         // Nur bei Wave-Levels Runden starten
@@ -191,7 +204,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             showRoundAnnouncement(forRound: 1)
         }
 
-        // ✅ Boss-Setup für Level 2
+        // Boss-Setup
         if level.type == .boss {
             setupBossIfNeeded()
             setupBossHUD()
@@ -200,13 +213,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
-    // MARK: - Touch → Spieler schießt
+    // MARK: - Touch
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         shoot()
     }
 
-    // MARK: - Kollisionen
+    // MARK: - Physics Contacts
 
     func didBegin(_ contact: SKPhysicsContact) {
         let (first, second): (SKPhysicsBody, SKPhysicsBody)
@@ -218,107 +231,92 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             second = contact.bodyA
         }
 
-        // Spieler-Bullet trifft Enemy (Asteroid oder Gegner-Schiff / Boss)
+        // Player bullet hits enemy
         if first.categoryBitMask == PhysicsCategory.bullet &&
-           second.categoryBitMask == PhysicsCategory.enemy {
+            second.categoryBitMask == PhysicsCategory.enemy {
 
-            // Bullet entfernen
             first.node?.removeFromParent()
-
             guard let enemyNode = second.node as? SKSpriteNode else { return }
 
-            // ✅ Boss special-case (Boss hat eigene HP/Phasen/Shield-Logik in BossFight.swift)
+            // Boss special case
             if let b = boss, enemyNode == b {
+                vfx.spawnHitSparks(in: self,
+                                  at: contact.contactPoint,
+                                  baseColor: .cyan,
+                                  count: 14,
+                                  zPos: b.zPosition + 3)
 
-                // Impact-Sparks
-                spawnHitSparks(at: contact.contactPoint,
-                               baseColor: .cyan,
-                               count: 14,
-                               zPos: b.zPosition + 3)
-
-                // Boss Schaden (respektiert Shield)
                 applyDamageToBoss(b, amount: 1)
                 return
             }
 
-            // Ist es ein EnemyShip oder ein Asteroid?
             let isShip = enemyShips.contains(enemyNode)
 
-            // 1) Kurz aufblitzen lassen
-            flashEnemy(enemyNode, isShip: isShip)
+            // Flash + Hit sparks
+            vfx.flashEnemy(enemyNode, isShip: isShip)
 
-            // 2) Hit-Sparks-Farbe wählen
-            let sparkColor: SKColor
-            if isShip {
-                // Schiffe → bläulich / energiemäßig
-                sparkColor = SKColor(red: 0.4, green: 0.9, blue: 1.0, alpha: 1.0)
-            } else {
-                // Asteroiden → warm, wie Gesteins-/Metal-Splitter
-                sparkColor = SKColor(red: 1.0, green: 0.85, blue: 0.45, alpha: 1.0)
-            }
+            let sparkColor: SKColor = isShip
+                ? SKColor(red: 0.4, green: 0.9, blue: 1.0, alpha: 1.0)
+                : SKColor(red: 1.0, green: 0.85, blue: 0.45, alpha: 1.0)
 
-            // 3) Funken am Kontaktpunkt
-            let hitPos = contact.contactPoint
-            spawnHitSparks(at: hitPos,
-                           baseColor: sparkColor,
-                           count: isShip ? 12 : 9,
-                           zPos: enemyNode.zPosition + 2)
+            vfx.spawnHitSparks(in: self,
+                              at: contact.contactPoint,
+                              baseColor: sparkColor,
+                              count: isShip ? 12 : 9,
+                              zPos: enemyNode.zPosition + 2)
 
-            // 4) HP-Logik wie bisher
-            if enemyNode.userData == nil {
-                enemyNode.userData = NSMutableDictionary()
-            }
+            // HP logic
+            if enemyNode.userData == nil { enemyNode.userData = NSMutableDictionary() }
             let currentHP = (enemyNode.userData?["hp"] as? Int) ?? 1
-            let newHP     = max(0, currentHP - 1)
+            let newHP = max(0, currentHP - 1)
 
             enemyNode.userData?["hp"] = newHP
             updateEnemyHealthBar(for: enemyNode)
 
             if newHP <= 0 {
-
                 if enemyShips.contains(enemyNode) {
-
-                    // ✅ DAS WAR DER FEHLENDE TEIL
                     registerEnemyShipKilled(enemyNode)
 
                     SoundManager.shared.playRandomExplosion(in: self)
 
-                    playEnemyShipExplosion(
-                        at: enemyNode.position,
-                        zPosition: enemyNode.zPosition
-                    )
+                    vfx.playEnemyShipExplosion(in: self,
+                                               camera: cameraNode,
+                                               at: enemyNode.position,
+                                               zPosition: enemyNode.zPosition,
+                                               desiredWidth: size.width * 0.3)
 
                     enemyNode.removeAllActions()
                     enemyNode.physicsBody = nil
                     enemyNode.removeFromParent()
-
                 } else {
-                    // Asteroid (kein Einfluss auf Runden)
-                    playAsteroidDestruction(on: enemyNode)
+                    // Asteroid
+                    SoundManager.shared.playRandomExplosion(in: self)
+                    let savedVelocity = enemyNode.physicsBody?.velocity ?? .zero
+                    vfx.playAsteroidDestruction(in: self, asteroid: enemyNode, savedVelocity: savedVelocity)
                 }
 
                 enemies.removeAll { $0 == enemyNode }
             }
         }
 
-        // Enemy-Bullet trifft Spieler-Schiff
+        // Enemy bullet hits player
         if first.categoryBitMask == PhysicsCategory.player &&
-           second.categoryBitMask == PhysicsCategory.enemyBullet {
+            second.categoryBitMask == PhysicsCategory.enemyBullet {
 
             second.node?.removeFromParent()
             applyDamageToPlayer(amount: 10)
         }
 
-        // Enemy (Asteroid oder Gegner-Schiff) rammt den Spieler
+        // Enemy rams player
         if first.categoryBitMask == PhysicsCategory.player &&
-           second.categoryBitMask == PhysicsCategory.enemy {
+            second.categoryBitMask == PhysicsCategory.enemy {
 
             applyDamageToPlayer(amount: 5)
         }
 
-        // Spieler sammelt Powerup ein
+        // Player picks up powerup
         if first.categoryBitMask == PhysicsCategory.player &&
-           second.categoryBitMask == PhysicsCategory.powerUp {
+            second.categoryBitMask == PhysicsCategory.powerUp {
 
             if let node = second.node as? SKSpriteNode {
                 handlePowerUpPickup(node)
@@ -326,7 +324,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
-    // MARK: - Steuerung via SwiftUI Buttons
+    // MARK: - SwiftUI Controls
 
     func startMoving(_ direction: TankDirection) {
         currentDirection = direction
@@ -354,7 +352,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         lastUpdateTime = currentTime
 
         // =========================
-        // ✅ Spieler: normal bewegen, nur beim Loslassen leicht sliden
+        // Player movement + slide
         // =========================
         if let direction = currentDirection {
             switch direction {
@@ -385,7 +383,6 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 playerShip.zRotation -= rotateSpeed * deltaTime
             }
         } else {
-            // Stop-Slide (nur wenn kein Input)
             playerShip.position.x += playerSlideVelocity.dx * deltaTime
             playerShip.position.y += playerSlideVelocity.dy * deltaTime
 
@@ -397,7 +394,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             if abs(playerSlideVelocity.dy) < 5 { playerSlideVelocity.dy = 0 }
         }
 
-        // Spieler innerhalb der Map halten
+        // Player in bounds
         if let levelNode = levelNode {
             let marginX = playerShip.size.width / 2
             let marginY = playerShip.size.height / 2
@@ -412,6 +409,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             playerShip.position = CGPoint(x: clampedX, y: clampedY)
         }
 
+        // Continuous particles
         particles.update(in: self,
                          currentTime: currentTime,
                          player: playerShip,
@@ -419,40 +417,36 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                          enemies: enemies,
                          boss: boss)
 
-        // Stars und Nebel
+        // Environment
         environment.update(in: self, currentTime: currentTime)
 
         // =========================
-        // ✅ Enemy: Stop-Slide (nur wenn updateChaser sie NICHT bewegt)
+        // Enemy slide if not moved
         // =========================
         var enemyPrePos: [ObjectIdentifier: CGPoint] = [:]
         for e in enemyShips {
             enemyPrePos[ObjectIdentifier(e)] = e.position
             if enemySlideVelocities[ObjectIdentifier(e)] == nil {
-                enemySlideVelocities[ObjectIdentifier(e)] = CGVector(dx: 0, dy: 0)
+                enemySlideVelocities[ObjectIdentifier(e)] = .zero
             }
         }
 
-        // Verfolger-AI für ALLE Gegner-Schiffe
         updateChaser(deltaTime: deltaTime)
 
-        // Nach updateChaser prüfen: bewegt? Wenn nicht → leicht sliden
         let dtE = max(deltaTime, 0.001)
         for e in enemyShips {
             let key = ObjectIdentifier(e)
             let before = enemyPrePos[key] ?? e.position
-            let after  = e.position
+            let after = e.position
 
             let movedDx = after.x - before.x
             let movedDy = after.y - before.y
             let movedDist = hypot(movedDx, movedDy)
 
             if movedDist > 0.2 {
-                // wurde aktiv bewegt → Velocity updaten
                 enemySlideVelocities[key] = CGVector(dx: movedDx / dtE, dy: movedDy / dtE)
             } else {
-                // wurde nicht bewegt → Stop-Slide anwenden
-                var v = enemySlideVelocities[key] ?? CGVector(dx: 0, dy: 0)
+                var v = enemySlideVelocities[key] ?? .zero
 
                 e.position.x += v.dx * deltaTime
                 e.position.y += v.dy * deltaTime
@@ -468,22 +462,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
 
-        // Kamera folgt dem Spieler
+        // Camera follows player
         cameraNode.position = playerShip.position
 
-        // Gegner schießen
+        // Combat + spawns
         handleEnemyShooting(currentTime: currentTime)
-
-        // zufällige fliegende Asteroiden spawnen
         handleFlyingAsteroidSpawning(currentTime: currentTime)
-
-        // Powerup-Spawns steuern
         handlePowerUpSpawning(currentTime: currentTime)
-
-        // Powerup-Dauer (Triple Shot / Shield) überprüfen
         updatePowerUpDurations(currentTime: currentTime)
 
-        // Waves ODER Boss
         if level.type == .normal {
             handleEnemyWaveSpawning(currentTime: currentTime)
         } else if level.type == .boss {
@@ -491,324 +478,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
-    // MARK: VFX (One-shot Effects)
-
-    /// Zerbrösel-Animation für einen Asteroiden (3x2 Sprite-Sheet)
-    func playAsteroidDestruction(on asteroid: SKSpriteNode) {
-
-        // ✅ FIX: Sound hier abspielen (nicht im didBegin doppelt / falsch)
-        SoundManager.shared.playRandomExplosion(in: self)
-
-        let sheet = SKTexture(imageNamed: "AstroidDestroyed")
-
-        // Falls das Sheet fehlt → Fallback: nur ausblenden
-        guard sheet.size() != .zero else {
-            let fade = SKAction.fadeOut(withDuration: 0.15)
-            asteroid.run(.sequence([fade, .removeFromParent()]))
-            return
-        }
-
-        // ✅ FIX: Velocity sichern, damit der Asteroid beim Zerbröseln nicht "stehen bleibt"
-        let savedVelocity = asteroid.physicsBody?.velocity ?? CGVector(dx: 0, dy: 0)
-
-        let rows = 3
-        let cols = 2
-#if swift(>=5.0)
-        var frames: [SKTexture] = []
-#else
-        var frames = [SKTexture]()
-#endif
-
-        // Reihenfolge: von oben links nach unten rechts
-        for row in 0..<rows {
-            for col in 0..<cols {
-                let originX = CGFloat(col) / CGFloat(cols)
-                let originY = 1.0 - CGFloat(row + 1) / CGFloat(rows)
-
-                let rect = CGRect(
-                    x: originX,
-                    y: originY,
-                    width: 1.0 / CGFloat(cols),
-                    height: 1.0 / CGFloat(rows)
-                )
-
-                let frame = SKTexture(rect: rect, in: sheet)
-                frames.append(frame)
-            }
-        }
-
-        // Physik ausschalten, damit der kaputte Stein nicht mehr kollidiert
-        asteroid.physicsBody = nil
-        asteroid.removeAllActions()
-
-        // Animation
-        let animate = SKAction.animate(with: frames, timePerFrame: 0.05)
-
-        // Parallel langsam ausblenden
-        let fadeOut = SKAction.fadeOut(withDuration: 0.5)
-
-        // ✅ FIX: Drift weiterlaufen lassen (ca. 0.5s)
-        let driftDuration: TimeInterval = 0.5
-        let drift = SKAction.moveBy(
-            x: savedVelocity.dx * driftDuration,
-            y: savedVelocity.dy * driftDuration,
-            duration: driftDuration
-        )
-
-        let group = SKAction.group([animate, fadeOut, drift])
-        asteroid.run(.sequence([group, .removeFromParent()]))
-
-        // Funken an der Position des Asteroiden
-        spawnExplosionSparks(
-            at: asteroid.position,
-            baseColor: SKColor(red: 0.7, green: 0.5, blue: 0.3, alpha: 1.0),
-            count: 18,
-            zPos: asteroid.zPosition + 1
-        )
-    }
-
-    /// Explosion für Gegner-Schiffe (2x3 Sprite-Sheet, blau)
-    func playEnemyShipExplosion(at position: CGPoint, zPosition: CGFloat) {
-
-        let sheet = SKTexture(imageNamed: "ExplosionEnemyShip") // Name im Asset-Katalog
-        guard sheet.size() != .zero else { return }
-
-        let rows = 2
-        let cols = 3
-#if swift(>=5.0)
-        var frames: [SKTexture] = []
-#else
-        var frames = [SKTexture]()
-#endif
-
-        // von oben links nach unten rechts
-        for row in 0..<rows {
-            for col in 0..<cols {
-                let originX = CGFloat(col) / CGFloat(cols)
-                let originY = 1.0 - CGFloat(row + 1) / CGFloat(rows)
-
-                let rect = CGRect(
-                    x: originX,
-                    y: originY,
-                    width: 1.0 / CGFloat(cols),
-                    height: 1.0 / CGFloat(rows)
-                )
-
-                let frame = SKTexture(rect: rect, in: sheet)
-                frames.append(frame)
-            }
-        }
-
-        // Breite eines Frames im Sheet
-        let frameWidth = sheet.size().width / CGFloat(cols)
-
-        // Explosion etwas größer als die Schiffe
-        let desiredWidth = size.width * 0.3
-        let scale = desiredWidth / frameWidth
-
-        let explosion = SKSpriteNode(texture: frames.first)
-        explosion.setScale(scale)
-        explosion.position = position
-        explosion.zPosition = zPosition + 1
-        explosion.alpha = 1.0
-        explosion.blendMode = .add
-
-        addChild(explosion)
-
-        // 💥 Shockwave-Effekt um die Explosion herum
-        triggerExplosionShockwave(at: position)
-
-        let animate = SKAction.animate(with: frames, timePerFrame: 0.05)
-        let fadeOut = SKAction.fadeOut(withDuration: 0.5)
-        let group   = SKAction.group([animate, fadeOut])
-
-        explosion.run(.sequence([group, .removeFromParent()]))
-
-        // Funken dazu
-        spawnExplosionSparks(at: position,
-                             baseColor: .cyan,   // passt zum blauen Effekt
-                             count: 24,
-                             zPos: 60)
-    }
-
-    /// Kleiner Shockwave-Effekt rund um eine Explosion:
-    /// - Ring, der sich ausdehnt und verblasst
-    /// - kurzer Kamera-Punch / Shake
-    func triggerExplosionShockwave(at position: CGPoint) {
-        // --- 1) Ring-Effekt ---
-        let radius: CGFloat = 80
-
-        let ring = SKShapeNode(circleOfRadius: radius)
-        ring.position = position
-        ring.zPosition = 999   // über allem drüber
-        ring.strokeColor = SKColor.cyan
-        ring.lineWidth = 6
-        ring.glowWidth = 10
-        ring.fillColor = .clear
-        ring.alpha = 0.9
-
-        addChild(ring)
-
-        // Start klein, dann expandieren
-        ring.setScale(0.2)
-
-        let scaleUp = SKAction.scale(to: 1.4, duration: 0.18)
-        let fadeOut = SKAction.fadeOut(withDuration: 0.18)
-        let group   = SKAction.group([scaleUp, fadeOut])
-
-        ring.run(.sequence([group, .removeFromParent()]))
-
-        // --- 2) Kamera-Punch / Minishake ---
-        guard let cam = camera else { return }
-
-        let originalScale = cam.xScale
-        let punchIn  = SKAction.scale(to: originalScale * 0.92, duration: 0.05)
-        let punchOut = SKAction.scale(to: originalScale, duration: 0.12)
-        punchIn.timingMode  = .easeOut
-        punchOut.timingMode = .easeIn
-
-        let punchSequence = SKAction.sequence([punchIn, punchOut])
-
-        // kleines Wackeln
-        let shakeAmount: CGFloat = 8
-        let shakeDuration: TimeInterval = 0.16
-
-        let moveLeft  = SKAction.moveBy(x: -shakeAmount, y: 0, duration: shakeDuration / 4)
-        let moveRight = SKAction.moveBy(x:  shakeAmount * 2, y: 0, duration: shakeDuration / 4)
-        let moveBack  = SKAction.moveBy(x: -shakeAmount, y: 0, duration: shakeDuration / 4)
-        let moveUp    = SKAction.moveBy(x: 0, y: shakeAmount, duration: shakeDuration / 4)
-        let moveDown  = SKAction.moveBy(x: 0, y: -shakeAmount, duration: shakeDuration / 4)
-
-        let shakeSeq = SKAction.sequence([moveLeft, moveRight, moveBack, moveUp, moveDown])
-
-        cam.run(punchSequence)
-        cam.run(shakeSeq)
-    }
-
-    /// Funkensplitter bei einer Explosion
-    func spawnExplosionSparks(at position: CGPoint,
-                              baseColor: SKColor = .yellow,
-                              count: Int = 20,
-                              zPos: CGFloat = 50) {
-        for _ in 0..<count {
-            // zufällige Größe
-            let length = CGFloat.random(in: 14...26)
-            let thickness = CGFloat.random(in: 3...6)
-
-            let spark = SKSpriteNode(
-                color: baseColor,
-                size: CGSize(width: length, height: thickness)
-            )
-
-            spark.position = position
-            spark.zPosition = zPos
-            spark.alpha = 1.0
-            spark.blendMode = .add          // schön leuchtend
-
-            // Anker an einem Ende, damit er „rausfliegt“
-            spark.anchorPoint = CGPoint(x: 0.0, y: 0.5)
-
-            // Zufällige Richtung
-            let angle = CGFloat.random(in: 0 ..< (.pi * 2))
-            spark.zRotation = angle
-
-            // Zufällige Flugweite
-            let distance = CGFloat.random(in: 80...180)
-            let dx = cos(angle) * distance
-            let dy = sin(angle) * distance
-
-            let duration: TimeInterval = 0.35
-
-            let move  = SKAction.moveBy(x: dx, y: dy, duration: duration)
-            let fade  = SKAction.fadeOut(withDuration: duration)
-            let scale = SKAction.scaleX(to: 0.2, duration: duration)
-
-            let group  = SKAction.group([move, fade, scale])
-            let finish = SKAction.removeFromParent()
-
-            spark.run(.sequence([group, finish]))
-            addChild(spark)
-        }
-    }
-
-    // MARK: - Treffereffekte (Flash + Hit-Sparks)
-
-    /// Kurzer Farb-Flash auf einem Gegner, wenn er getroffen wird
-    func flashEnemy(_ enemy: SKSpriteNode, isShip: Bool) {
-        let originalColor = enemy.color
-        let originalBlend = enemy.colorBlendFactor
-
-        // Schiffe leicht cyan, Asteroiden neutral weiß
-        let flashColor: SKColor = isShip
-            ? SKColor(red: 0.6, green: 0.95, blue: 1.0, alpha: 1.0)
-            : .white
-
-        let flashIn = SKAction.run {
-            enemy.color = flashColor
-            enemy.colorBlendFactor = 1.0
-        }
-
-        let wait = SKAction.wait(forDuration: 0.06)
-
-        let flashOut = SKAction.run {
-            enemy.color = originalColor
-            enemy.colorBlendFactor = originalBlend
-        }
-
-        let seq = SKAction.sequence([flashIn, wait, flashOut])
-        enemy.run(seq, withKey: "hitFlash")
-    }
-
-    /// Starke, kurze Treffer-Funken (kleiner als Explosion)
-    func spawnHitSparks(at position: CGPoint,
-                        baseColor: SKColor,
-                        count: Int = 10,
-                        zPos: CGFloat = 60) {
-        for _ in 0..<count {
-            let length = CGFloat.random(in: 18...32)
-            let thickness = CGFloat.random(in: 3...5)
-
-            let spark = SKSpriteNode(
-                color: baseColor,
-                size: CGSize(width: length, height: thickness)
-            )
-
-            spark.position = position
-            spark.zPosition = zPos
-            spark.alpha = 0.95
-            spark.blendMode = .add
-            spark.anchorPoint = CGPoint(x: 0.0, y: 0.5)
-
-            let angle = CGFloat.random(in: 0 ..< (.pi * 2))
-            spark.zRotation = angle
-
-            let distance = CGFloat.random(in: 60...120)
-            let dx = cos(angle) * distance
-            let dy = sin(angle) * distance
-
-            let duration: TimeInterval = 0.18
-
-            let move  = SKAction.moveBy(x: dx, y: dy, duration: duration)
-            let fade  = SKAction.fadeOut(withDuration: duration)
-            let scale = SKAction.scaleX(to: 0.2, duration: duration)
-
-            let group  = SKAction.group([move, fade, scale])
-            let finish = SKAction.removeFromParent()
-
-            spark.run(.sequence([group, finish]))
-            addChild(spark)
-        }
-    }
-
-    // MARK: - Schaden am Spieler
+    // MARK: - Player Damage
 
     func applyDamageToPlayer(amount: Int) {
-        // 1) Schild aktiv? → gar kein Schaden
-        if isShieldActive {
-            return
-        }
+        if isShieldActive { return }
 
-        // 2) Normaler Hit-Cooldown (kurze Unverwundbarkeit mit Blinken)
         if isPlayerInvulnerable &&
             (currentTimeForCollisions - playerLastHitTime) < playerHitCooldown {
             return
@@ -838,24 +512,17 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             self?.playerShip.alpha = 1.0
         }
 
-        let sequence = SKAction.sequence([repeatBlink, end])
-        ship.run(sequence, withKey: "invulnBlink")
+        ship.run(.sequence([repeatBlink, end]), withKey: "invulnBlink")
     }
 
-    // MARK: - Powerup-Verwaltung (Dauer etc.)
+    // MARK: - Powerup Durations
 
     func updatePowerUpDurations(currentTime: TimeInterval) {
-        // Triple Shot endet?
         if isTripleShotActive && currentTime >= tripleShotEndTime {
             isTripleShotActive = false
-            if !isShieldActive {
-                setActivePowerUpLabel(nil)
-            } else {
-                setActivePowerUpLabel("Shield")
-            }
+            setActivePowerUpLabel(isShieldActive ? "Shield" : nil)
         }
 
-        // Shield endet?
         if isShieldActive && currentTime >= shieldEndTime {
             isShieldActive = false
             if !isPlayerInvulnerable {
@@ -864,34 +531,30 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             shieldNode?.removeFromParent()
             shieldNode = nil
 
-            if !isTripleShotActive {
-                setActivePowerUpLabel(nil)
-            } else {
-                setActivePowerUpLabel("Triple Shot")
-            }
+            setActivePowerUpLabel(isTripleShotActive ? "Triple Shot" : nil)
         }
     }
-    
+
+    // MARK: - Post-Physics
+
     override func didSimulatePhysics() {
         super.didSimulatePhysics()
 
-        // ✅ Boss-Shield folgt Boss
         if level.type == .boss {
             bossFollowShieldIfNeeded()
         }
     }
 
-    // MARK: - Gegner-HP-Konfiguration nach Runde
+    // MARK: - Enemy HP Scaling
 
     func enemyMaxHPForCurrentRound() -> Int {
-        // Für Boss-Level könntest du hier später anders skalieren, z.B. über level.config.bossMaxHP
         switch currentRound {
         case 1, 2:
-            return 1     // Runde 1–2: 1 Treffer
+            return 1
         case 3, 4:
-            return 2     // Runde 3–4: 2 Treffer
+            return 2
         default:
-            return 3     // Runde 5+: 3 Treffer
+            return 3
         }
     }
 }
