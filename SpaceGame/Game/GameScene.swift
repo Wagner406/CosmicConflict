@@ -62,8 +62,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // VFX (one-shot)
     var vfx: VFXSystem!
 
-    // Player Movement System
+    // Player Movement
     private var playerMovement = PlayerMovementSystem()
+
+    // Enemy Slide
+    private var enemySlideSystem = EnemySlideSystem()
+    private let enemySlideDamping: CGFloat = 0.86
 
     // MARK: - Enemies
 
@@ -81,12 +85,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     let moveSpeed: CGFloat = 400
     let rotateSpeed: CGFloat = 4
     let enemyMoveSpeed: CGFloat = 90
-
-    // Stop-Slide für Gegner-Schiffe (nur wenn sie in einem Frame nicht aktiv bewegt wurden)
-    private var enemySlideVelocities: [ObjectIdentifier: CGVector] = [:]
-
-    // Keep this here for now (later becomes EnemySlideSystem)
-    private let enemySlideDamping: CGFloat = 0.86
 
     // MARK: - Combat / Timers
 
@@ -138,16 +136,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // MARK: - Rounds / Waves
 
-    /// Letzte Zeit, zu der ein Gegner-Schiff gespawnt wurde
     var lastEnemySpawnTime: TimeInterval = 0
-
-    /// Wie viele Gegner-Schiffe in dieser Runde bereits gespawnt wurden
     var enemiesSpawnedThisRound: Int = 0
-
-    /// Wie viele Gegner-Schiffe in dieser Runde bereits zerstört wurden
     var enemiesKilledThisRound: Int = 0
-
-    /// Level komplett geschafft?
     var isLevelCompleted: Bool = false
 
     // MARK: - Boss (Level 2)
@@ -191,24 +182,21 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         resetRuntimeState()
 
-        // Musik erst starten, nachdem die Kamera existiert
         SoundManager.shared.startMusicIfNeeded(for: level.id, in: self)
 
-        // Nur bei Wave-Levels Runden starten
+        // Wave start
         if level.type == .normal && (level.config.rounds?.isEmpty == false) {
             startRound(1)
             showRoundAnnouncement(forRound: 1)
         }
 
-        // Boss-Setup
+        // Boss setup
         if level.type == .boss {
             setupBossIfNeeded()
             setupBossHUD()
             updateBossHUD()
 
             cameraNode.setScale(bossCameraZoom)
-
-            // Robust: make sure VFX always points to the active camera
             vfx.setCamera(cameraNode)
         }
     }
@@ -219,17 +207,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     private func resetRuntimeState() {
-        // Player movement state
+        // Player movement system state
         playerMovement.reset()
 
-        // Enemy slide state
-        enemySlideVelocities.removeAll()
+        // Enemy slide system state
+        enemySlideSystem.reset()
 
-        // fliegende Asteroiden
+        // flying asteroid timers
         lastAsteroidSpawnTime = 0
         nextAsteroidSpawnInterval = TimeInterval.random(in: 10...20)
 
-        // Powerup-Timer initialisieren
+        // powerups
         lastPowerUpSpawnTime = 0
 
         particles.reset()
@@ -244,8 +232,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Physics Contacts
     //
     // IMPORTANT:
-    // `didBegin(_:)` has been moved into ContactRouter.swift (extension GameScene).
-    // Keep ONLY ONE didBegin implementation in the project to avoid redeclaration issues.
+    // `didBegin(_:)` is implemented in ContactRouter.swift (extension GameScene).
+    // Keep ONLY ONE didBegin implementation in the project.
 
     // MARK: - SwiftUI Controls
 
@@ -269,7 +257,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         let deltaTime = computeDeltaTime(currentTime)
 
-        // Player movement handled by system now
+        // Player movement handled by system
         playerMovement.update(
             player: playerShip,
             direction: currentDirection,
@@ -282,7 +270,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         updateContinuousSystems(currentTime: currentTime, player: playerShip)
 
-        updateEnemySlideAndChaser(deltaTime: deltaTime)
+        updateEnemyMovementAndSlide(deltaTime: deltaTime)
 
         // Camera follows player
         cameraNode.position = playerShip.position
@@ -330,50 +318,21 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         environment.update(in: self, currentTime: currentTime)
     }
 
-    // MARK: - Update: Enemy Slide + AI
+    // MARK: - Update: Enemy AI + Slide System
 
-    private func updateEnemySlideAndChaser(deltaTime: CGFloat) {
-        // Snapshot positions before AI movement
-        var enemyPrePos: [ObjectIdentifier: CGPoint] = [:]
-        for e in enemyShips {
-            enemyPrePos[ObjectIdentifier(e)] = e.position
-            if enemySlideVelocities[ObjectIdentifier(e)] == nil {
-                enemySlideVelocities[ObjectIdentifier(e)] = .zero
-            }
-        }
+    private func updateEnemyMovementAndSlide(deltaTime: CGFloat) {
+        // 1) snapshot BEFORE AI
+        enemySlideSystem.beginFrame(for: enemyShips)
 
-        // AI movement (your AI.swift)
+        // 2) AI movement (your AI.swift)
         updateChaser(deltaTime: deltaTime)
 
-        // Slide for ships that didn't move this frame
-        let dtE = max(deltaTime, 0.001)
-        for e in enemyShips {
-            let key = ObjectIdentifier(e)
-            let before = enemyPrePos[key] ?? e.position
-            let after = e.position
-
-            let movedDx = after.x - before.x
-            let movedDy = after.y - before.y
-            let movedDist = hypot(movedDx, movedDy)
-
-            if movedDist > 0.2 {
-                enemySlideVelocities[key] = CGVector(dx: movedDx / dtE, dy: movedDy / dtE)
-            } else {
-                var v = enemySlideVelocities[key] ?? .zero
-
-                e.position.x += v.dx * deltaTime
-                e.position.y += v.dy * deltaTime
-
-                let damp = pow(enemySlideDamping, deltaTime * 60)
-                v.dx *= damp
-                v.dy *= damp
-
-                if abs(v.dx) < 3 { v.dx = 0 }
-                if abs(v.dy) < 3 { v.dy = 0 }
-
-                enemySlideVelocities[key] = v
-            }
-        }
+        // 3) apply slide AFTER AI
+        enemySlideSystem.endFrame(
+            for: enemyShips,
+            deltaTime: deltaTime,
+            damping: enemySlideDamping
+        )
     }
 
     // MARK: - Update: Combat + Spawning
