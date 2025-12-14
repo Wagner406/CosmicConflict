@@ -72,6 +72,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // Combat + Spawning
     private var combatAndSpawning = CombatAndSpawnSystem()
 
+    // Delta Time
+    private var deltaTimeSystem = DeltaTimeSystem()
+
+    // Player Damage
+    private var playerDamageSystem = PlayerDamageSystem()
+
     // MARK: - Enemies
 
     /// Alle Gegner (Asteroiden + verfolgenden Schiffe)
@@ -83,13 +89,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Movement
 
     var currentDirection: TankDirection?
-    var lastUpdateTime: TimeInterval = 0
 
     let moveSpeed: CGFloat = 400
     let rotateSpeed: CGFloat = 4
     let enemyMoveSpeed: CGFloat = 90
 
-    // MARK: - Combat / Timers
+    // MARK: - Combat / Timers (Gameplay state used by other systems)
 
     // Gegner-Feuerrate
     let enemyFireInterval: TimeInterval = 1.5
@@ -109,9 +114,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     var currentRound: Int = 1
 
     // Hit-Cooldown für den Spieler
-    var playerLastHitTime: TimeInterval = 0
     let playerHitCooldown: TimeInterval = 1.0
-    var isPlayerInvulnerable: Bool = false
 
     // Zeit aus update(), damit didBegin weiß, welche Zeit gilt
     var currentTimeForCollisions: TimeInterval = 0
@@ -210,6 +213,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     private func resetRuntimeState() {
+        // Delta time system state
+        deltaTimeSystem.reset()
+
         // Player movement system state
         playerMovement.reset()
 
@@ -218,6 +224,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Combat & spawning system state
         combatAndSpawning.reset()
+
+        // Player damage state
+        playerDamageSystem.reset()
 
         // flying asteroid timers
         lastAsteroidSpawnTime = 0
@@ -261,7 +270,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         vfx?.beginFrame()
         currentTimeForCollisions = currentTime
 
-        let deltaTime = computeDeltaTime(currentTime)
+        let deltaTime = deltaTimeSystem.deltaTime(for: currentTime)
 
         // Player movement handled by system
         playerMovement.update(
@@ -283,17 +292,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Combat + spawning handled by system
         combatAndSpawning.update(scene: self, currentTime: currentTime)
-    }
-
-    private func computeDeltaTime(_ currentTime: TimeInterval) -> CGFloat {
-        let deltaTime: CGFloat
-        if lastUpdateTime == 0 {
-            deltaTime = 0
-        } else {
-            deltaTime = CGFloat(currentTime - lastUpdateTime)
-        }
-        lastUpdateTime = currentTime
-        return deltaTime
     }
 
     private func clampPlayerToLevelBounds(_ playerShip: SKSpriteNode) {
@@ -342,41 +340,26 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         )
     }
 
-    // MARK: - Player Damage
+    // MARK: - Player Damage (now via PlayerDamageSystem)
 
     func applyDamageToPlayer(amount: Int) {
-        if isShieldActive { return }
-
-        if isPlayerInvulnerable &&
-            (currentTimeForCollisions - playerLastHitTime) < playerHitCooldown {
-            return
-        }
-
-        playerLastHitTime = currentTimeForCollisions
-        isPlayerInvulnerable = true
-
-        playerHP = max(0, playerHP - amount)
-        updatePlayerHealthBar()
-
-        startPlayerInvulnerabilityBlink()
-    }
-
-    func startPlayerInvulnerabilityBlink() {
         guard let ship = playerShip else { return }
 
-        ship.removeAction(forKey: "invulnBlink")
+        playerDamageSystem.applyDamage(
+            to: ship,
+            amount: amount,
+            currentTime: currentTimeForCollisions,
+            cooldown: playerHitCooldown,
+            isShieldActive: isShieldActive,
+            playerHP: &playerHP,
+            onHPChanged: { [weak self] in
+                self?.updatePlayerHealthBar()
+            }
+        )
 
-        let fadeOut = SKAction.fadeAlpha(to: 0.3, duration: 0.1)
-        let fadeIn  = SKAction.fadeAlpha(to: 1.0, duration: 0.1)
-        let blink   = SKAction.sequence([fadeOut, fadeIn])
-        let repeatBlink = SKAction.repeat(blink, count: 5)
-
-        let end = SKAction.run { [weak self] in
-            self?.isPlayerInvulnerable = false
-            self?.playerShip.alpha = 1.0
-        }
-
-        ship.run(.sequence([repeatBlink, end]), withKey: "invulnBlink")
+        // IMPORTANT: PlayerDamageSystem's blink currently does NOT flip invulnerability off by itself.
+        // It only does visuals. We keep the invulnerability flag via the system.
+        // If you want invulnerability to end exactly after blink duration, we can add a timed clear.
     }
 
     // MARK: - Powerup Durations
@@ -389,9 +372,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         if isShieldActive && currentTime >= shieldEndTime {
             isShieldActive = false
-            if !isPlayerInvulnerable {
+
+            // if player is not invulnerable, ensure alpha is normal
+            if !playerDamageSystem.isInvulnerable {
                 playerShip.alpha = 1.0
             }
+
             shieldNode?.removeFromParent()
             shieldNode = nil
 
