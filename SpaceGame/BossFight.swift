@@ -1,5 +1,5 @@
 //
-//  Bossfight.swift
+//  BossFight.swift
 //  SpaceGame
 //
 
@@ -15,40 +15,44 @@ extension GameScene {
         case dead
     }
 
-    // ✅ 10 Schüsse pro Phase → 30 HP total
+    // ✅ 10 Hits pro Phase → 30 HP total
     private var bossHitsPerPhase: Int { 10 }
     private var bossTotalHP: Int { bossHitsPerPhase * 3 } // 30
 
-    // MARK: Setup
+    // MARK: - Tuning
+    private var phase3PauseDuration: TimeInterval { 2.5 }
+
+    /// Wie oft soll Phase 3 eine Shield-Pause machen?
+    private var phase3NextPauseRange: ClosedRange<TimeInterval> { 9.0...13.0 }
+
+    /// Mindestabstand zwischen Minion-Spawns (auch wenn Pause öfter kommt)
+    private var phase3MinionCooldown: TimeInterval { 14.0 }
+
+    // MARK: - Setup
 
     func setupBossIfNeeded() {
         guard boss == nil else { return }
 
-        // ✅ Asset heißt "Boss"
         let bossTexture = SKTexture(imageNamed: "Boss")
         let b = SKSpriteNode(texture: bossTexture)
         b.name = "boss"
         b.zPosition = 40
 
-        // Größe
         let desiredWidth = size.width * 0.45
         let scale = desiredWidth / max(1, bossTexture.size().width)
         b.setScale(scale)
 
-        // Spawn oben in der Arena
         if let lvl = levelNode {
             b.position = CGPoint(x: lvl.frame.midX, y: lvl.frame.maxY - 250)
         } else {
             b.position = CGPoint(x: 0, y: 300)
         }
 
-        // ✅ Boss-HP: fix 30 (3 Phasen à 10 Hits)
         if b.userData == nil { b.userData = NSMutableDictionary() }
         let maxHP = bossTotalHP
         b.userData?["bossMaxHP"] = maxHP
         b.userData?["bossHP"] = maxHP
 
-        // Physik: Boss ist "enemy"
         let radius = max(b.size.width, b.size.height) * 0.35
         b.physicsBody = SKPhysicsBody(circleOfRadius: radius)
         b.physicsBody?.isDynamic = false
@@ -60,47 +64,47 @@ extension GameScene {
         boss = b
         enemies.append(b)
 
-        // Initial Phase
         bossPhase = .phase1
         bossIsShieldActive = false
         removeBossShield()
 
-        // Timer init (wichtig, sonst keine Pause)
-        bossLastPauseTriggerTime = 0
+        // Timer init
         bossPauseUntil = 0
-
-        // Schuss- und Move-Timer
         bossNextMoveTime = 0
         bossNextShotTime = 0
 
         bossBurstShotsRemaining = 0
         bossBurstNextShotTime = 0
 
-        // ✅ HUD: sichtbar + initial updaten
-        setupBossHUD()
-        updateBossHUD()
+        // Phase-3 state init (stored in GameScene)
+        bossNextShieldPauseTime = 0
+        bossDidSpawnMinionsThisPause = false
+        bossPhase3UseShotgunNext = true
+        bossNextMinionSpawnTime = 0
     }
 
-    // MARK: Main Update
+    // MARK: - Main Update
 
     func updateBossFight(currentTime: TimeInterval) {
         guard let b = boss, bossPhase != .dead else { return }
 
-        updateBossPhaseIfNeeded()
+        updateBossPhaseIfNeeded(currentTime: currentTime)
 
-        // ✅ Phase 1: alle 10s Pause erzwingen (2.0s)
-        if bossPhase == .phase1 {
-            if bossLastPauseTriggerTime == 0 {
-                bossLastPauseTriggerTime = currentTime
+        // ✅ Phase 3 – regelmäßige Schild-Pause (mit größeren Abständen)
+        if bossPhase == .phase3 {
+            if bossNextShieldPauseTime == 0 {
+                bossNextShieldPauseTime = currentTime + TimeInterval.random(in: phase3NextPauseRange)
             }
 
-            if currentTime - bossLastPauseTriggerTime >= 10.0 {
-                bossPauseUntil = currentTime + 2.0
-                bossLastPauseTriggerTime = currentTime
+            if currentTime >= bossNextShieldPauseTime {
+                bossPauseUntil = currentTime + phase3PauseDuration
+                bossNextShieldPauseTime = currentTime + TimeInterval.random(in: phase3NextPauseRange)
+
+                // pro Pause neu erlauben (aber Spawn ist trotzdem zeit-gegated)
+                bossDidSpawnMinionsThisPause = false
             }
         }
 
-        // Während Pause: keine Bewegung
         let isPaused = currentTime < bossPauseUntil
 
         if !isPaused {
@@ -109,37 +113,32 @@ extension GameScene {
             b.removeAction(forKey: "bossMove")
         }
 
-        // Shooting
         updateBossShooting(currentTime: currentTime, isPaused: isPaused)
 
-        // HUD immer aktuell
+        // HUD aktuell halten (liegt in BossHUD.swift)
         updateBossHUD()
     }
 
-    // MARK: Phase Switching (✅ exakt 10 Hits pro Phase)
+    // MARK: - Phase Switching
 
-    private func updateBossPhaseIfNeeded() {
+    private func updateBossPhaseIfNeeded(currentTime: TimeInterval) {
         guard let b = boss,
               let hp = b.userData?["bossHP"] as? Int
         else { return }
 
-        // HP-Ranges:
-        // 21...30 = Phase 1 (10 Hits bis 20)
-        // 11...20 = Phase 2 (10 Hits bis 10)
-        //  1...10 = Phase 3 (10 Hits bis 0)
-        //  0      = dead
         if hp <= 0 {
             if bossPhase != .dead { bossPhase = .dead }
             return
         }
 
-        if hp > bossHitsPerPhase * 2 {             // >20
+        if hp > bossHitsPerPhase * 2 {             // > 20
             if bossPhase != .phase1 {
                 bossPhase = .phase1
                 bossIsShieldActive = false
                 removeBossShield()
                 bossBurstShotsRemaining = 0
             }
+
         } else if hp > bossHitsPerPhase {          // 11...20
             if bossPhase != .phase2 {
                 bossPhase = .phase2
@@ -147,19 +146,33 @@ extension GameScene {
                 removeBossShield()
                 bossBurstShotsRemaining = 0
             }
+
         } else {                                   // 1...10
             if bossPhase != .phase3 {
                 bossPhase = .phase3
                 bossIsShieldActive = false
                 removeBossShield()
                 bossBurstShotsRemaining = 0
+
+                // Phase-3 State sauber resetten
+                bossNextShieldPauseTime = 0
+                bossDidSpawnMinionsThisPause = false
+                bossPauseUntil = 0
+
+                bossPhase3UseShotgunNext = true
+                bossNextMinionSpawnTime = currentTime + 3.0 // nicht sofort spammen
+
+                // damit er nicht "alte" Shot-Timer übernimmt
+                bossNextShotTime = currentTime + 0.6
             }
         }
     }
 
-    // MARK: Movement (slower + less chaotic)
+    // MARK: - Movement
 
     private func updateBossMovement(currentTime: TimeInterval) {
+        // während Pause keine neue Bewegung planen
+        if bossPhase == .phase3 && currentTime < bossPauseUntil { return }
         guard let b = boss else { return }
 
         let retargetInterval: TimeInterval
@@ -201,8 +214,10 @@ extension GameScene {
         let step = min(maxStep, dist)
         let nx = dx / dist
         let ny = dy / dist
-        let limitedTarget = CGPoint(x: b.position.x + nx * step,
-                                    y: b.position.y + ny * step)
+        let limitedTarget = CGPoint(
+            x: b.position.x + nx * step,
+            y: b.position.y + ny * step
+        )
 
         let duration = TimeInterval(step / max(1, speed))
 
@@ -217,37 +232,42 @@ extension GameScene {
         }
     }
 
-    // MARK: Shooting
+    // MARK: - Shooting
 
     private func updateBossShooting(currentTime: TimeInterval, isPaused: Bool) {
         guard let b = boss, let p = playerShip else { return }
 
         switch bossPhase {
+
+        // PHASE 1 — Shotgun
         case .phase1:
             if currentTime < bossNextShotTime { return }
-
-            let next = TimeInterval.random(in: 3.0...4.0)
-            bossNextShotTime = currentTime + next
-
+            bossNextShotTime = currentTime + TimeInterval.random(in: 3.0...4.0)
             bossFireShotgun(from: b, to: p.position, pelletCount: 6, spread: .pi / 10)
 
+        // PHASE 2 — MG BURST: 5 shots, dann 3s cooldown
         case .phase2:
             if bossBurstShotsRemaining <= 0 && currentTime >= bossNextShotTime {
                 bossBurstShotsRemaining = 5
                 bossBurstNextShotTime = currentTime
                 bossNextShotTime = currentTime + 3.0
-
-                spawnBossMinions(count: 2)
             }
-
             fireBossBurstIfNeeded(currentTime: currentTime, from: b, to: p.position)
 
+        // PHASE 3 — Pause + Shield + 2 Minions + ABWECHSELND Shotgun <-> MG-Burst
         case .phase3:
             if isPaused {
                 if !bossIsShieldActive {
                     bossIsShieldActive = true
                     applyBossShield(on: b)
-                    spawnBossMinions(count: 4)
+                }
+
+                // ✅ Minions: nur 2, nur einmal pro Pause UND mit Cooldown
+                if !bossDidSpawnMinionsThisPause,
+                   currentTime >= bossNextMinionSpawnTime {
+                    spawnBossMinions(count: 2)
+                    bossDidSpawnMinionsThisPause = true
+                    bossNextMinionSpawnTime = currentTime + phase3MinionCooldown
                 }
                 return
             } else {
@@ -257,137 +277,49 @@ extension GameScene {
                 }
             }
 
-            if currentTime < bossNextShotTime { return }
-
-            let choose = Int.random(in: 0...1)
-            if choose == 0 {
-                bossBurstShotsRemaining = 5
-                bossBurstNextShotTime = currentTime
-                bossNextShotTime = currentTime + 3.2
-            } else {
-                bossNextShotTime = currentTime + 3.2
-                bossFireShotgun(from: b, to: p.position, pelletCount: 7, spread: .pi / 9)
+            // Wenn Burst läuft → weiter feuern
+            if bossBurstShotsRemaining > 0 {
+                fireBossBurstIfNeeded(currentTime: currentTime, from: b, to: p.position)
+                return
             }
 
-            fireBossBurstIfNeeded(currentTime: currentTime, from: b, to: p.position)
+            // Cooldown bis zur nächsten Attack?
+            if currentTime < bossNextShotTime { return }
+
+            // ✅ ABWECHSELND (nicht random)
+            if bossPhase3UseShotgunNext {
+                // Shotgun wie Phase 1
+                bossFireShotgun(from: b, to: p.position, pelletCount: 7, spread: .pi / 9)
+                bossNextShotTime = currentTime + 3.0
+            } else {
+                // MG Burst wie Phase 2
+                bossBurstShotsRemaining = 5
+                bossBurstNextShotTime = currentTime
+                bossNextShotTime = currentTime + 3.0
+                fireBossBurstIfNeeded(currentTime: currentTime, from: b, to: p.position)
+            }
+
+            bossPhase3UseShotgunNext.toggle()
 
         case .dead:
             return
         }
     }
 
-    // MARK: HUD
-
-    func setupBossHUD() {
-        bossHealthBarBg?.removeFromParent()
-        bossHealthBarFill?.removeFromParent()
-        bossHealthLabel?.removeFromParent()
-        bossPhaseLabel?.removeFromParent()
-
-        let barWidth: CGFloat = 360
-        let barHeight: CGFloat = 18
-
-        let yTop: CGFloat = (size.height / 2) - 70
-        let xLeft: CGFloat = -barWidth / 2
-
-        let bg = SKShapeNode(rect: CGRect(x: xLeft, y: yTop, width: barWidth, height: barHeight), cornerRadius: 6)
-        bg.fillColor = SKColor(white: 0.0, alpha: 0.45)
-        bg.strokeColor = SKColor(white: 1.0, alpha: 0.25)
-        bg.lineWidth = 2
-        bg.zPosition = 500
-
-        let fill = SKShapeNode(rect: CGRect(x: xLeft, y: yTop, width: barWidth, height: barHeight), cornerRadius: 6)
-        fill.fillColor = .red
-        fill.strokeColor = .clear
-        fill.zPosition = 501
-
-        let name = SKLabelNode(fontNamed: "AvenirNext-Bold")
-        name.text = level.config.bossName ?? "BOSS"
-        name.fontSize = 18
-        name.fontColor = .white
-        name.horizontalAlignmentMode = .center
-        name.verticalAlignmentMode = .center
-        name.position = CGPoint(x: 0, y: yTop + barHeight + 16)
-        name.zPosition = 502
-
-        let phase = SKLabelNode(fontNamed: "AvenirNext-Heavy")
-        phase.text = "PHASE 1"
-        phase.fontSize = 22
-        phase.fontColor = .yellow
-        phase.horizontalAlignmentMode = .center
-        phase.verticalAlignmentMode = .center
-        phase.position = CGPoint(x: 0, y: yTop - 26)
-        phase.zPosition = 502
-        
-        let phaseBg = SKShapeNode(rectOf: CGSize(width: 160, height: 34), cornerRadius: 10)
-        phaseBg.fillColor = SKColor(white: 0.0, alpha: 0.55)
-        phaseBg.strokeColor = SKColor(white: 1.0, alpha: 0.18)
-        phaseBg.lineWidth = 2
-        phaseBg.position = phase.position
-        phaseBg.zPosition = 501
-        hudNode.addChild(phaseBg)
-
-        hudNode.addChild(bg)
-        hudNode.addChild(fill)
-        hudNode.addChild(name)
-        hudNode.addChild(phase)
-
-        bossHealthBarBg = bg
-        bossHealthBarFill = fill
-        bossHealthLabel = name
-        bossPhaseLabel = phase
-
-        updateBossHUD()
-    }
-
-    func updateBossHUD() {
-        guard let b = boss,
-              let hp = b.userData?["bossHP"] as? Int,
-              let maxHP = b.userData?["bossMaxHP"] as? Int,
-              let fill = bossHealthBarFill
-        else { return }
-
-        let pct = max(0, min(1, CGFloat(hp) / CGFloat(maxHP)))
-
-        let barWidth: CGFloat = 360
-        let barHeight: CGFloat = 18
-        let yTop: CGFloat = (size.height / 2) - 70
-        let xLeft: CGFloat = -barWidth / 2
-
-        fill.path = CGPath(
-            roundedRect: CGRect(x: xLeft, y: yTop, width: barWidth * pct, height: barHeight),
-            cornerWidth: 6,
-            cornerHeight: 6,
-            transform: nil
-        )
-
-        if let phaseLabel = bossPhaseLabel {
-            switch bossPhase {
-            case .phase1: phaseLabel.text = "PHASE 1"
-            case .phase2: phaseLabel.text = "PHASE 2"
-            case .phase3: phaseLabel.text = "PHASE 3"
-            case .dead:   phaseLabel.text = "DEFEATED"
-            }
-        }
-    }
-
-    // MARK: Burst helper
-
+    // ✅ Burst helper
     private func fireBossBurstIfNeeded(currentTime: TimeInterval, from b: SKSpriteNode, to target: CGPoint) {
         guard bossBurstShotsRemaining > 0 else { return }
         if currentTime < bossBurstNextShotTime { return }
 
         bossBurstShotsRemaining -= 1
         bossBurstNextShotTime = currentTime + 0.12
-
         bossFireSingle(from: b, to: target)
     }
 
-    // MARK: Boss Damage (✅ schnell + sichtbar)
+    // MARK: - Boss Damage
 
     func applyDamageToBoss(_ boss: SKSpriteNode, amount: Int) {
         if bossIsShieldActive { return }
-
         if boss.userData == nil { boss.userData = NSMutableDictionary() }
 
         let hp = (boss.userData?["bossHP"] as? Int) ?? bossTotalHP
@@ -396,10 +328,7 @@ extension GameScene {
 
         flashBossOnHit(boss)
 
-        // ✅ Phase ggf. sofort wechseln
-        updateBossPhaseIfNeeded()
-
-        // ✅ HUD sofort aktualisieren
+        updateBossPhaseIfNeeded(currentTime: currentTimeForCollisions)
         updateBossHUD()
 
         if newHP <= 0 {
@@ -418,18 +347,13 @@ extension GameScene {
         bossPhase = .dead
         bossIsShieldActive = false
         removeBossShield()
-
-        bossHealthBarBg?.removeFromParent()
-        bossHealthBarFill?.removeFromParent()
-        bossHealthLabel?.removeFromParent()
-        bossPhaseLabel?.removeFromParent()
-        bossHealthBarBg = nil
-        bossHealthBarFill = nil
-        bossHealthLabel = nil
-        bossPhaseLabel = nil
-
+        
+        teardownBossHUD()
+        
+        vfx.playEnemyShipExplosion(at: boss.position,
+                                   zPosition: boss.zPosition,
+                                   desiredWidth: boss.size.width * 1.2)
         SoundManager.shared.playRandomExplosion(in: self)
-        //playEnemyShipExplosion(at: boss.position, zPosition: boss.zPosition)
 
         boss.removeAllActions()
         boss.physicsBody = nil
@@ -440,19 +364,17 @@ extension GameScene {
 
         isLevelCompleted = true
 
-        // ✅ Banner anzeigen
-        showBossLevelCompleteBanner()
-
-        // ✅ erst nach kurzer Zeit zurück ins Menü
+        showLevelCompleteBanner()
+        
         run(.sequence([
-            .wait(forDuration: 1.4),
+            .wait(forDuration: 3.0),
             .run { [weak self] in
                 self?.onLevelCompleted?()
             }
         ]))
     }
 
-    // MARK: Shield Visual
+    // MARK: - Shield Visual
 
     private func applyBossShield(on boss: SKSpriteNode) {
         removeBossShield()
@@ -482,14 +404,13 @@ extension GameScene {
         bossShieldNode = nil
     }
 
-    /// ✅ wird aus GameScene.didSimulatePhysics() aufgerufen
     func bossFollowShieldIfNeeded() {
         if let b = boss, let shield = bossShieldNode {
             shield.position = b.position
         }
     }
 
-    // MARK: Shots
+    // MARK: - Shots
 
     private func bossFireSingle(from boss: SKSpriteNode, to target: CGPoint) {
         spawnBossBullet(from: boss.position, to: target, speed: 520)
@@ -504,8 +425,10 @@ extension GameScene {
             let ang = baseAngle + offset
 
             let dir = CGPoint(x: cos(ang), y: sin(ang))
-            let far = CGPoint(x: boss.position.x + dir.x * 1000,
-                              y: boss.position.y + dir.y * 1000)
+            let far = CGPoint(
+                x: boss.position.x + dir.x * 1000,
+                y: boss.position.y + dir.y * 1000
+            )
 
             spawnBossBullet(from: boss.position, to: far, speed: 540)
         }
@@ -538,7 +461,7 @@ extension GameScene {
         bullet.run(.sequence([.wait(forDuration: 4.0), .removeFromParent()]))
     }
 
-    // MARK: Minions
+    // MARK: - Minions
 
     private func spawnBossMinions(count: Int) {
         guard let lvl = levelNode else { return }
@@ -548,45 +471,17 @@ extension GameScene {
             let y = CGFloat.random(in: (lvl.frame.midY)...(lvl.frame.maxY - 220))
             let pos = CGPoint(x: x, y: y)
 
-            // Wenn du schon eine EnemyShip-Spawn Funktion hast -> hier aufrufen:
-            // spawnEnemyShip(at: pos)
-            _ = pos
+            let enemy = makeChaserShip()
+            enemy.position = pos
+
+            // ✅ markieren: zählt NICHT für Rounds
+            if enemy.userData == nil { enemy.userData = NSMutableDictionary() }
+            enemy.userData?["isBossMinion"] = true
+            enemy.name = "bossMinion"
+
+            addChild(enemy)
+            enemies.append(enemy)
+            enemyShips.append(enemy)
         }
-    }
-    
-    // ✅ Boss-Level Complete Banner (wie Level 1)
-    func showBossLevelCompleteBanner() {
-        // Falls schon da → entfernen
-        hudNode.childNode(withName: "bossLevelCompleteBanner")?.removeFromParent()
-
-        let label = SKLabelNode(fontNamed: "AvenirNext-Bold")
-        label.name = "bossLevelCompleteBanner"
-        label.text = "LEVEL COMPLETE"
-        label.fontSize = 46
-        label.fontColor = .yellow
-        label.zPosition = 9999
-        label.alpha = 0.0
-        label.position = CGPoint(x: 0, y: 0) // Mitte vom Screen (HUD ist an Kamera)
-
-        // Optional: kleine dunkle Box dahinter, damit es IMMER lesbar ist
-        let padW: CGFloat = 520
-        let padH: CGFloat = 90
-        let bg = SKShapeNode(rectOf: CGSize(width: padW, height: padH), cornerRadius: 18)
-        bg.fillColor = SKColor(white: 0.0, alpha: 0.55)
-        bg.strokeColor = SKColor(white: 1.0, alpha: 0.20)
-        bg.lineWidth = 2
-        bg.zPosition = label.zPosition - 1
-        bg.alpha = 0.0
-        bg.position = label.position
-
-        hudNode.addChild(bg)
-        hudNode.addChild(label)
-
-        let fadeIn  = SKAction.fadeAlpha(to: 1.0, duration: 0.18)
-        let hold    = SKAction.wait(forDuration: 1.2)
-        let fadeOut = SKAction.fadeAlpha(to: 0.0, duration: 0.25)
-
-        label.run(.sequence([fadeIn, hold, fadeOut, .removeFromParent()]))
-        bg.run(.sequence([fadeIn, hold, fadeOut, .removeFromParent()]))
     }
 }

@@ -11,7 +11,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // MARK: - Input
 
-    enum TankDirection {
+    enum ShipDirection {
         case forward
         case backward
         case rotateLeft
@@ -82,7 +82,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // MARK: - Movement
 
-    var currentDirection: TankDirection?
+    var currentDirection: ShipDirection?
     var lastUpdateTime: TimeInterval = 0
 
     let moveSpeed: CGFloat = 400
@@ -160,6 +160,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     var bossBurstNextShotTime: TimeInterval = 0
 
     var bossLastPauseTriggerTime: TimeInterval = 0
+    
+    var bossNextShieldPauseTime: TimeInterval = 0
+    var bossDidSpawnMinionsThisPause: Bool = false
+    
+    // MARK: - Boss (Phase 3 extra state)
+    var bossPhase3UseShotgunNext: Bool = true
+    var bossNextMinionSpawnTime: TimeInterval = 0
 
     // MARK: - Lifecycle
 
@@ -243,11 +250,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // MARK: - SwiftUI Controls
 
-    func startMoving(_ direction: TankDirection) {
+    func startMoving(_ direction: ShipDirection) {
         currentDirection = direction
     }
 
-    func stopMoving(_ direction: TankDirection) {
+    func stopMoving(_ direction: ShipDirection) {
         if currentDirection == direction {
             currentDirection = nil
         }

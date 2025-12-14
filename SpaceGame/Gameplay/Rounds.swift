@@ -102,6 +102,16 @@ extension GameScene {
 
     /// Wird aufgerufen, wenn ein Gegner-Schiff endgültig zerstört wurde
     func registerEnemyShipKilled(_ enemy: SKSpriteNode) {
+
+        // Boss-Minions dürfen Runden NICHT beeinflussen
+        if let isBossMinion = enemy.userData?["isBossMinion"] as? Bool, isBossMinion == true {
+            // nur aus Arrays entfernen, aber NICHT kills zählen
+            if let index = enemyShips.firstIndex(of: enemy) {
+                enemyShips.remove(at: index)
+            }
+            return
+        }
+
         if let index = enemyShips.firstIndex(of: enemy) {
             enemyShips.remove(at: index)
         }

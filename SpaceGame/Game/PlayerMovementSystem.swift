@@ -23,7 +23,7 @@ struct PlayerMovementSystem {
 
     /// Updates player position/rotation and slide velocity.
     mutating func update(player: SKSpriteNode,
-                         direction: GameScene.TankDirection?,
+                         direction: GameScene.ShipDirection?,
                          deltaTime: CGFloat,
                          moveSpeed: CGFloat,
                          rotateSpeed: CGFloat) {
