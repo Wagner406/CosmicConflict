@@ -138,4 +138,46 @@ extension GameScene {
         bossHealthLabel = nil
         bossPhaseLabel = nil
     }
+    
+    func relayoutBossHUD() {
+        guard boss != nil else { return } // nur wenn Boss-Level aktiv
+
+        // Wenn BossHUD noch nicht existiert -> aufbauen
+        if bossHealthBarBg == nil || bossHealthBarFill == nil || bossHealthLabel == nil || bossPhaseLabel == nil {
+            setupBossHUD()
+            return
+        }
+
+        guard let playerHPBg = hudNode.childNode(withName: "playerHPBackground") as? SKSpriteNode,
+              let bg = bossHealthBarBg,
+              let fill = bossHealthBarFill,
+              let name = bossHealthLabel,
+              let phase = bossPhaseLabel,
+              let phaseBg = hudNode.childNode(withName: "bossPhaseBg") as? SKShapeNode
+        else { return }
+
+        let baseTopY = playerHPBg.position.y
+        let bossBarY = baseTopY - 55
+
+        let barWidth: CGFloat = min(size.width * 0.62, 520)
+        let barHeight: CGFloat = 16
+        let corner: CGFloat = 6
+
+        let xLeft = -barWidth / 2
+        let yTop  = bossBarY
+
+        bg.path = CGPath(roundedRect: CGRect(x: xLeft, y: yTop, width: barWidth, height: barHeight),
+                         cornerWidth: corner, cornerHeight: corner, transform: nil)
+
+        // Fill wird in updateBossHUD() korrekt auf pct gesetzt – wir setzen hier erstmal volle Breite,
+        // dann updateBossHUD() aufrufen.
+        fill.path = CGPath(roundedRect: CGRect(x: xLeft, y: yTop, width: barWidth, height: barHeight),
+                           cornerWidth: corner, cornerHeight: corner, transform: nil)
+
+        name.position = CGPoint(x: 0, y: yTop + barHeight + 16)
+        phase.position = CGPoint(x: 0, y: yTop - 26)
+        phaseBg.position = phase.position
+
+        updateBossHUD()
+    }
 }

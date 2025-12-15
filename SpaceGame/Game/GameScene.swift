@@ -160,10 +160,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     var bossBurstNextShotTime: TimeInterval = 0
 
     var bossLastPauseTriggerTime: TimeInterval = 0
-    
+
     var bossNextShieldPauseTime: TimeInterval = 0
     var bossDidSpawnMinionsThisPause: Bool = false
-    
+
     // MARK: - Boss (Phase 3 extra state)
     var bossPhase3UseShotgunNext: Bool = true
     var bossNextMinionSpawnTime: TimeInterval = 0
@@ -397,6 +397,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         if level.type == .boss {
             bossFollowShieldIfNeeded()
         }
+    }
+
+    // MARK: - Dynamic Layout (Rotation / Resize)
+    //
+    // Wichtig: SpriteKit ruft didChangeSize auf, wenn sich die Scene-Größe ändert
+    // (Rotation, iPad Multitasking, verschiedene Device-Sizes).
+    // Hier repositionieren wir HUD + BossHUD dynamisch.
+
+    override func didChangeSize(_ oldSize: CGSize) {
+        super.didChangeSize(oldSize)
+        relayoutHUD()
     }
 
     // MARK: - Enemy HP Scaling

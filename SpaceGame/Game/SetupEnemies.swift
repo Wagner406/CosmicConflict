@@ -7,14 +7,35 @@ import SpriteKit
 
 extension GameScene {
 
+    // MARK: - Helpers
+
+    private func clamp(_ value: CGFloat, _ minV: CGFloat, _ maxV: CGFloat) -> CGFloat {
+        max(minV, min(maxV, value))
+    }
+
+    /// Einheitliche World-Referenz: basiert auf Level-Map (nicht Screen, nicht Camera)
+    private func worldBase() -> CGFloat {
+        guard let lvl = levelNode else { return min(size.width, size.height) }
+        return min(lvl.frame.width, lvl.frame.height)
+    }
+
+    /// Skaliert ein Sprite anhand einer Frame-Breite aus einem SpriteSheet
+    private func scaleForSheetFrame(frameWidth: CGFloat, factor: CGFloat, minPx: CGFloat, maxPx: CGFloat) -> CGFloat {
+        let desiredWidth = clamp(worldBase() * factor, minPx, maxPx)
+        return desiredWidth / max(1, frameWidth)
+    }
+
+    // MARK: - Setup
+
     func setupEnemies() {
         // ❗️Nur bei normalen Wave-Levels feste Start-Asteroiden
         guard level.type == .normal else { return }
+        guard let lvl = levelNode else { return }
 
         let asteroidPositions: [CGPoint] = [
-            CGPoint(x: size.width/2 + 300, y: size.height/2),
-            CGPoint(x: size.width/2 - 250, y: size.height/2 + 200),
-            CGPoint(x: size.width/2,       y: size.height/2 - 250)
+            CGPoint(x: lvl.frame.midX + 300, y: lvl.frame.midY),
+            CGPoint(x: lvl.frame.midX - 250, y: lvl.frame.midY + 200),
+            CGPoint(x: lvl.frame.midX,       y: lvl.frame.midY - 250)
         ]
 
         for pos in asteroidPositions {
@@ -54,8 +75,13 @@ extension GameScene {
 
             node = SKSpriteNode(texture: frames.first)
 
-            let desiredWidth = size.width * 0.18
-            let scale = desiredWidth / frameWidth
+            // ✅ Asteroid-Größe: basiert auf Level-Map
+            // Feinjustierung hier:
+            // factor kleiner -> alles kleiner
+            let scale = scaleForSheetFrame(frameWidth: frameWidth,
+                                           factor: 0.055,
+                                           minPx: 55,
+                                           maxPx: 120)
             node.setScale(scale)
 
             node.run(.repeatForever(.animate(with: frames, timePerFrame: 0.12)))
@@ -109,8 +135,12 @@ extension GameScene {
             node = SKSpriteNode(texture: frames.first)
             node.anchorPoint = CGPoint(x: 0.5, y: 0.6)
 
-            let desiredWidth = size.width * 0.12
-            let scale = desiredWidth / frameWidth
+            // ✅ EnemyShip-Größe: basiert auf Level-Map
+            // Feinjustierung hier:
+            let scale = scaleForSheetFrame(frameWidth: frameWidth,
+                                           factor: 0.040,
+                                           minPx: 36,
+                                           maxPx: 80)
             node.setScale(scale)
 
             node.run(.repeatForever(.animate(with: frames, timePerFrame: 0.12)))

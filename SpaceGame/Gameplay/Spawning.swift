@@ -2,40 +2,42 @@
 //  Spawning.swift
 //  SpaceGame
 //
-//  Created by Alexander Wagner on 30.11.25.
-//
 
 import SpriteKit
 
 extension GameScene {
 
-    // Wird in update() aufgerufen
+    // MARK: - Helpers
+
+    private func clamp(_ value: CGFloat, _ minV: CGFloat, _ maxV: CGFloat) -> CGFloat {
+        max(minV, min(maxV, value))
+    }
+
+    /// "Welt"-Basisgröße (Level-Node), stabil über iPhone/iPad/Rotation
+    private func worldBaseSize() -> CGFloat {
+        guard let lvl = levelNode else { return min(size.width, size.height) }
+        return min(lvl.frame.width, lvl.frame.height)
+    }
+
+    // MARK: - Flying Asteroids
+
+    /// Wird in update() aufgerufen
     func handleFlyingAsteroidSpawning(currentTime: TimeInterval) {
         guard levelNode != nil else { return }
 
-        // Wie viele fliegende Asteroiden sind schon aktiv?
         let currentFlying = children.filter { $0.name == "flyingAsteroid" }.count
-        if currentFlying >= maxFlyingAsteroids {
-            return   // schon genug unterwegs
-        }
+        if currentFlying >= maxFlyingAsteroids { return }
 
-        // noch nicht Zeit? -> nichts tun
-        if currentTime - lastAsteroidSpawnTime < nextAsteroidSpawnInterval {
-            return
-        }
+        if currentTime - lastAsteroidSpawnTime < nextAsteroidSpawnInterval { return }
 
-        // Zeitpunkt merken und neues Intervall würfeln
         lastAsteroidSpawnTime = currentTime
         nextAsteroidSpawnInterval = TimeInterval.random(in: 5...12)
 
         spawnFlyingAsteroid()
     }
 
-    // Ein einzelner fliegender Asteroid
     func spawnFlyingAsteroid() {
         guard let level = levelNode else { return }
-
-        // --- 1) Asteroiden-Sprite wie bei den statischen ---
 
         let sheet = SKTexture(imageNamed: "Asteroid")
         let asteroid: SKSpriteNode
@@ -44,10 +46,10 @@ extension GameScene {
             let rows = 2
             let cols = 2
 
-            let frameWidth  = sheet.size().width  / CGFloat(cols)
-            _ = sheet.size().height / CGFloat(rows)
+            let frameWidth = sheet.size().width / CGFloat(cols)
 
             var frames: [SKTexture] = []
+            frames.reserveCapacity(rows * cols)
 
             for row in 0..<rows {
                 for col in 0..<cols {
@@ -57,26 +59,25 @@ extension GameScene {
                         width: 1.0 / CGFloat(cols),
                         height: 1.0 / CGFloat(rows)
                     )
-                    let frame = SKTexture(rect: rect, in: sheet)
-                    frames.append(frame)
+                    frames.append(SKTexture(rect: rect, in: sheet))
                 }
             }
 
             asteroid = SKSpriteNode(texture: frames.first)
 
-            let baseDesiredWidth = size.width * 0.15
-            let sizeFactor = CGFloat.random(in: 0.7...1.4)
+            // ✅ Welt-/Level-basiertes Sizing (stabil auf iPad/Landscape)
+            // Feinjustierung hier:
+            let base = worldBaseSize()
+            let baseDesiredWidth = clamp(base * 0.060, 28, 70)     // <- kleiner & stabil
+            let sizeFactor = CGFloat.random(in: 0.85...1.15)       // <- weniger Extrem als vorher
             let desiredWidth = baseDesiredWidth * sizeFactor
 
-            let scale = desiredWidth / frameWidth
+            let scale = desiredWidth / max(1, frameWidth)
             asteroid.setScale(scale)
 
-            let animation = SKAction.animate(with: frames, timePerFrame: 0.12)
-            asteroid.run(.repeatForever(animation))
-
+            asteroid.run(.repeatForever(.animate(with: frames, timePerFrame: 0.12)))
         } else {
-            asteroid = SKSpriteNode(color: .brown,
-                                    size: CGSize(width: 60, height: 60))
+            asteroid = SKSpriteNode(color: .brown, size: CGSize(width: 50, height: 50))
         }
 
         asteroid.zPosition = 8
@@ -91,11 +92,10 @@ extension GameScene {
         body.contactTestBitMask = PhysicsCategory.bullet
         asteroid.physicsBody = body
 
-        // 🔥 Fliegender Asteroid: 5 HP
+        // Fliegender Asteroid: 5 HP
         addEnemyHealthBar(to: asteroid, maxHP: 5)
 
-        // --- 2) Start- & Zielposition (inkl. Diagonalen) ---
-
+        // --- Start / End (außerhalb Level)
         let margin: CGFloat = radius * 2
 
         let minX = level.frame.minX
@@ -106,35 +106,28 @@ extension GameScene {
         func randomPoint(on side: Int) -> CGPoint {
             switch side {
             case 0: // links
-                let y = CGFloat.random(in: minY...maxY)
-                return CGPoint(x: minX - margin, y: y)
+                return CGPoint(x: minX - margin, y: CGFloat.random(in: minY...maxY))
             case 1: // rechts
-                let y = CGFloat.random(in: minY...maxY)
-                return CGPoint(x: maxX + margin, y: y)
+                return CGPoint(x: maxX + margin, y: CGFloat.random(in: minY...maxY))
             case 2: // unten
-                let x = CGFloat.random(in: minX...maxX)
-                return CGPoint(x: x, y: minY - margin)
+                return CGPoint(x: CGFloat.random(in: minX...maxX), y: minY - margin)
             default: // oben
-                let x = CGFloat.random(in: minX...maxX)
-                return CGPoint(x: x, y: maxY + margin)
+                return CGPoint(x: CGFloat.random(in: minX...maxX), y: maxY + margin)
             }
         }
 
         let startSide = Int.random(in: 0..<4)
         var endSide = Int.random(in: 0..<4)
-        while endSide == startSide {
-            endSide = Int.random(in: 0..<4)
-        }
+        while endSide == startSide { endSide = Int.random(in: 0..<4) }
 
         let start = randomPoint(on: startSide)
-        let end   = randomPoint(on: endSide)
+        let end = randomPoint(on: endSide)
 
         asteroid.position = start
         addChild(asteroid)
         enemies.append(asteroid)
 
-        // --- 3) Gerade Bewegung mit zufälliger Geschwindigkeit ---
-
+        // --- Bewegung
         let distance = hypot(end.x - start.x, end.y - start.y)
         let speed = CGFloat.random(in: 140...260)
         let duration = TimeInterval(distance / speed)

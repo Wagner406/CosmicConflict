@@ -28,6 +28,62 @@ extension GameScene {
     /// Mindestabstand zwischen Minion-Spawns (auch wenn Pause öfter kommt)
     private var phase3MinionCooldown: TimeInterval { 14.0 }
 
+    // MARK: - Helpers
+
+    private func clamp(_ v: CGFloat, _ minV: CGFloat, _ maxV: CGFloat) -> CGFloat {
+        max(minV, min(maxV, v))
+    }
+
+    /// Sichtbarer Bereich in Scene-Units (Camera-Zoom berücksichtigt)
+    private func visibleSceneWidth() -> CGFloat {
+        guard cameraNode.parent != nil else { return size.width }
+        let zoom = max(0.0001, cameraNode.xScale)
+        return size.width / zoom
+    }
+
+    private func visibleSceneHeight() -> CGFloat {
+        guard cameraNode.parent != nil else { return size.height }
+        let zoom = max(0.0001, cameraNode.yScale)
+        return size.height / zoom
+    }
+
+    /// Referenz-Größe für Boss (stabil bei iPhone/iPad + Rotation + Zoom)
+    private func bossReferenceSize() -> CGFloat {
+        min(visibleSceneWidth(), visibleSceneHeight())
+    }
+
+    /// HIER stellst du die Boss-Größe ein (ein einziger Ort)
+    private func desiredBossWidth() -> CGFloat {
+        let base = bossReferenceSize()
+        return clamp(base * 0.34, 140, 260)   // <- kleiner? 0.30 / min/max runter. Größer? 0.38 / max hoch.
+    }
+
+    /// Kannst du aus GameScene.didChangeSize(...) aufrufen (und wir rufen es auch intern einmal verzögert auf)
+    func relayoutBossIfNeeded() {
+        guard let b = boss else { return }
+        let tex = b.texture ?? SKTexture(imageNamed: "Boss")
+
+        let scale = desiredBossWidth() / max(1, tex.size().width)
+        b.setScale(scale)
+
+        // Hitbox neu (weil Größe sich ändert)
+        let radius = max(b.size.width, b.size.height) * 0.35
+        b.physicsBody = SKPhysicsBody(circleOfRadius: radius)
+        b.physicsBody?.isDynamic = false
+        b.physicsBody?.categoryBitMask = PhysicsCategory.enemy
+        b.physicsBody?.contactTestBitMask = PhysicsCategory.bullet | PhysicsCategory.player
+        b.physicsBody?.collisionBitMask = 0
+
+        // Shield-Ring folgt ohnehin der Boss-Size (bei neu aktivieren),
+        // aber wenn gerade aktiv, passt du ihn hier auch an:
+        if let shield = bossShieldNode {
+            shield.removeAllActions()
+            shield.removeFromParent()
+            bossShieldNode = nil
+            if bossIsShieldActive { applyBossShield(on: b) }
+        }
+    }
+
     // MARK: - Setup
 
     func setupBossIfNeeded() {
@@ -38,8 +94,8 @@ extension GameScene {
         b.name = "boss"
         b.zPosition = 40
 
-        let desiredWidth = size.width * 0.45
-        let scale = desiredWidth / max(1, bossTexture.size().width)
+        // ✅ FIX: Boss-Größe anhand der sichtbaren Kamera-Fläche (nicht Level-Frame!)
+        let scale = desiredBossWidth() / max(1, bossTexture.size().width)
         b.setScale(scale)
 
         if let lvl = levelNode {
@@ -81,6 +137,14 @@ extension GameScene {
         bossDidSpawnMinionsThisPause = false
         bossPhase3UseShotgunNext = true
         bossNextMinionSpawnTime = 0
+
+        // ✅ Wichtig:
+        // In didMove() setzt du danach cameraNode.setScale(bossCameraZoom).
+        // Damit der Boss danach NICHT plötzlich riesig bleibt, resizen wir 1 Tick später nochmal.
+        run(.sequence([
+            .wait(forDuration: 0.0),
+            .run { [weak self] in self?.relayoutBossIfNeeded() }
+        ]))
     }
 
     // MARK: - Main Update
@@ -239,13 +303,11 @@ extension GameScene {
 
         switch bossPhase {
 
-        // PHASE 1 — Shotgun
         case .phase1:
             if currentTime < bossNextShotTime { return }
             bossNextShotTime = currentTime + TimeInterval.random(in: 3.0...4.0)
             bossFireShotgun(from: b, to: p.position, pelletCount: 6, spread: .pi / 10)
 
-        // PHASE 2 — MG BURST: 5 shots, dann 3s cooldown
         case .phase2:
             if bossBurstShotsRemaining <= 0 && currentTime >= bossNextShotTime {
                 bossBurstShotsRemaining = 5
@@ -254,7 +316,6 @@ extension GameScene {
             }
             fireBossBurstIfNeeded(currentTime: currentTime, from: b, to: p.position)
 
-        // PHASE 3 — Pause + Shield + 2 Minions + ABWECHSELND Shotgun <-> MG-Burst
         case .phase3:
             if isPaused {
                 if !bossIsShieldActive {
@@ -262,7 +323,6 @@ extension GameScene {
                     applyBossShield(on: b)
                 }
 
-                // ✅ Minions: nur 2, nur einmal pro Pause UND mit Cooldown
                 if !bossDidSpawnMinionsThisPause,
                    currentTime >= bossNextMinionSpawnTime {
                     spawnBossMinions(count: 2)
@@ -277,22 +337,17 @@ extension GameScene {
                 }
             }
 
-            // Wenn Burst läuft → weiter feuern
             if bossBurstShotsRemaining > 0 {
                 fireBossBurstIfNeeded(currentTime: currentTime, from: b, to: p.position)
                 return
             }
 
-            // Cooldown bis zur nächsten Attack?
             if currentTime < bossNextShotTime { return }
 
-            // ✅ ABWECHSELND (nicht random)
             if bossPhase3UseShotgunNext {
-                // Shotgun wie Phase 1
                 bossFireShotgun(from: b, to: p.position, pelletCount: 7, spread: .pi / 9)
                 bossNextShotTime = currentTime + 3.0
             } else {
-                // MG Burst wie Phase 2
                 bossBurstShotsRemaining = 5
                 bossBurstNextShotTime = currentTime
                 bossNextShotTime = currentTime + 3.0
@@ -306,7 +361,6 @@ extension GameScene {
         }
     }
 
-    // ✅ Burst helper
     private func fireBossBurstIfNeeded(currentTime: TimeInterval, from b: SKSpriteNode, to target: CGPoint) {
         guard bossBurstShotsRemaining > 0 else { return }
         if currentTime < bossBurstNextShotTime { return }
@@ -347,12 +401,16 @@ extension GameScene {
         bossPhase = .dead
         bossIsShieldActive = false
         removeBossShield()
-        
+
         teardownBossHUD()
-        
+
+        // ✅ Explosion stabil: auch Kamera-basiert
+        let base = bossReferenceSize()
+        let explosionWidth = clamp(base * 0.42, 180, 380)
+
         vfx.playEnemyShipExplosion(at: boss.position,
                                    zPosition: boss.zPosition,
-                                   desiredWidth: boss.size.width * 1.2)
+                                   desiredWidth: explosionWidth)
         SoundManager.shared.playRandomExplosion(in: self)
 
         boss.removeAllActions()
@@ -363,9 +421,8 @@ extension GameScene {
         self.boss = nil
 
         isLevelCompleted = true
-
         showLevelCompleteBanner()
-        
+
         run(.sequence([
             .wait(forDuration: 3.0),
             .run { [weak self] in
@@ -474,7 +531,6 @@ extension GameScene {
             let enemy = makeChaserShip()
             enemy.position = pos
 
-            // ✅ markieren: zählt NICHT für Rounds
             if enemy.userData == nil { enemy.userData = NSMutableDictionary() }
             enemy.userData?["isBossMinion"] = true
             enemy.name = "bossMinion"

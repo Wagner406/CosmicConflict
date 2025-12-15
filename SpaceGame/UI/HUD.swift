@@ -130,4 +130,30 @@ extension GameScene {
 
         label.run(.sequence([fadeIn, wait, fadeOut, remove]))
     }
+    
+    func relayoutHUD() {
+        // --- Player HP Background ---
+        guard let playerBg = hudNode.childNode(withName: "playerHPBackground") as? SKSpriteNode,
+              let playerBar = playerBg.childNode(withName: "playerHPBar") as? SKSpriteNode
+        else { return }
+
+        let barWidth = size.width * 0.4
+        let barHeight: CGFloat = 16
+
+        playerBg.size = CGSize(width: barWidth, height: barHeight)
+        playerBg.position = CGPoint(x: 0, y: size.height / 2 - barHeight * 5)
+
+        // HP Bar (Fill)
+        playerBar.size = CGSize(width: barWidth, height: barHeight)
+        playerBar.position = CGPoint(x: -barWidth / 2, y: 0)
+
+        // --- Round + PowerUp Labels ---
+        let margin: CGFloat = 20
+
+        roundLabel?.position = CGPoint(x: -size.width / 2 + margin, y: playerBg.position.y)
+        powerUpLabel?.position = CGPoint(x:  size.width / 2 - margin, y: playerBg.position.y)
+
+        // Boss HUD folgt automatisch, wenn wir es auch relayouten:
+        relayoutBossHUD()
+    }
 }
