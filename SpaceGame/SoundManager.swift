@@ -23,14 +23,26 @@ final class SoundManager: NSObject {
 
     // 0.0 – 1.0
     var sfxVolume: Float = 0.08
-    var musicVolume: Float = 0.5
+    var musicVolume: Float = 0.1
 
     // MARK: - MUSIC (SpriteKit)
     private var musicNode: SKAudioNode?
 
     func startMusicIfNeeded(for levelId: Int, in scene: SKScene) {
         guard levelId == 1 else { return }
-        if musicNode != nil { return }
+
+        // Wenn Node existiert aber NICHT im aktuellen Scene-Tree hängt -> neu starten
+        if let node = musicNode {
+            let isInThisScene = (node.scene === scene)
+            let isInThisCamera = (scene.camera != nil && node.parent === scene.camera)
+
+            if isInThisScene && isInThisCamera {
+                return // alles gut
+            } else {
+                stopMusic() // alte Node weg, sonst "Lautsprecher-Punkt"
+            }
+        }
+
         playMusic(Sound.level1Music, in: scene, loop: true)
     }
 
@@ -39,20 +51,27 @@ final class SoundManager: NSObject {
 
         let node = SKAudioNode(fileNamed: file)
         node.autoplayLooped = loop
-        node.isPositional = false
-        node.run(SKAction.changeVolume(to: musicVolume, duration: 0))
 
-        // an Kamera hängen, wenn vorhanden
+        // SAFETY: Musik ist NIE positional
+        node.isPositional = false
+
+        // Immer bei (0,0) relativ zur Kamera
+        node.position = .zero
+
+        node.run(.changeVolume(to: musicVolume, duration: 0))
+
+        // Wenn Kamera existiert: IMMER an Kamera hängen
         if let cam = scene.camera {
             cam.addChild(node)
         } else {
-            scene.addChild(node)
+            scene.addChild(node)   // fallback
         }
 
         musicNode = node
     }
 
     func stopMusic() {
+        musicNode?.removeAllActions()
         musicNode?.removeFromParent()
         musicNode = nil
     }

@@ -186,6 +186,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         setupCamera()
         self.camera = cameraNode
 
+        // ✅ AUDIO LISTENER: damit Musik/SFX nicht an (0,0) kleben
+        self.listener = cameraNode
+
         // VFX init AFTER camera exists
         vfx = VFXSystem(scene: self, camera: cameraNode, zPosition: 900)
         vfx.setCamera(cameraNode)
@@ -208,6 +211,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
             cameraNode.setScale(bossCameraZoom)
             vfx.setCamera(cameraNode)
+
+            // falls Boss-Zoom später gesetzt wird: Listener bleibt Kamera
+            self.listener = cameraNode
         }
     }
 
@@ -241,12 +247,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         shoot()
     }
-
-    // MARK: - Physics Contacts
-    //
-    // IMPORTANT:
-    // `didBegin(_:)` is implemented in ContactRouter.swift (extension GameScene).
-    // Keep ONLY ONE didBegin implementation in the project.
 
     // MARK: - SwiftUI Controls
 
@@ -290,6 +290,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Camera follows player
         cameraNode.position = playerShip.position
+
+        // Listener folgt Kamera IMMER (Rotation/Resize-Safety)
+        if self.listener !== cameraNode {
+            self.listener = cameraNode
+        }
 
         // Combat + spawning handled by system
         combatAndSpawning.update(scene: self, currentTime: currentTime)
@@ -400,14 +405,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     // MARK: - Dynamic Layout (Rotation / Resize)
-    //
-    // Wichtig: SpriteKit ruft didChangeSize auf, wenn sich die Scene-Größe ändert
-    // (Rotation, iPad Multitasking, verschiedene Device-Sizes).
-    // Hier repositionieren wir HUD + BossHUD dynamisch.
 
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
         relayoutHUD()
+
+        // ✅ falls iOS/SpriteKit den Listener resetten sollte
+        self.listener = cameraNode
+    }
+
+    override func willMove(from view: SKView) {
+        super.willMove(from: view)
+        SoundManager.shared.stopMusic()
     }
 
     // MARK: - Enemy HP Scaling
