@@ -4,7 +4,7 @@ import SpriteKit
 struct GameView: View {
 
     @Binding var showGame: Bool
-    let level: GameLevel   // 👈 welches Level gespielt werden soll
+    let level: GameLevel
 
     @State private var scene: GameScene
 
@@ -12,10 +12,10 @@ struct GameView: View {
         _showGame = showGame
         self.level = level
 
-        // Szene wie bisher erstellen
         let s = GameScene()
-        let screenSize = UIScreen.current?.bounds.size ?? .zero
-        s.size = screenSize
+
+        // WICHTIG: Scene-Size NICHT manuell setzen.
+        // SpriteView + resizeFill übernimmt das und passt bei Rotation/iPad/Mac korrekt an.
         s.scaleMode = .resizeFill
 
         // Level in die Szene geben
@@ -23,7 +23,6 @@ struct GameView: View {
 
         // Callback: nach Level-Ende zurück ins Menü
         s.onLevelCompleted = {
-            // GameScene ruft das nach der 5s-Animation auf
             showGame.wrappedValue = false
         }
 

@@ -10,34 +10,32 @@ extension GameScene {
     // MARK: - Boss HUD
 
     func setupBossHUD() {
-        // HUD vorher entfernt?
         teardownBossHUD()
 
         // --- Layout: orientiert sich an Player HP Bar ---
-        // Player HP Background liegt in hudNode und heißt "playerHPBackground"
         let playerHPBg = hudNode.childNode(withName: "playerHPBackground") as? SKSpriteNode
 
-        // Falls nicht gefunden: Fallback etwas unterhalb Screen-Top
-        let topYFallback = size.height / 2 - 90
+        // Fallback etwas unterhalb Screen-Top
+        let topYFallback = size.height / 2 - 70
         let baseTopY = playerHPBg?.position.y ?? topYFallback
 
-        // Boss HUD soll UNTER der Player HP Bar sitzen
-        // (so bleibt Player HP immer an der besten Stelle)
-        let bossBarY = baseTopY - 55
+        // Boss HUD sitzt UNTER Player HP
+        let bossBarY = baseTopY - 26
 
-        // Dynamische Größen
-        let barWidth: CGFloat = min(size.width * 0.62, 520)
-        let barHeight: CGFloat = 16
-        let corner: CGFloat = 6
+        // ✅ Klein + elegant, device-stabil
+        let isPortrait = size.height > size.width
+        let barWidth: CGFloat = min(size.width * (isPortrait ? 0.52 : 0.42), 260)  // kompakt
+        let barHeight: CGFloat = isPortrait ? 10 : 8
+        let corner: CGFloat = barHeight / 2
 
         let xLeft = -barWidth / 2
         let yTop  = bossBarY
 
         // --- Background Bar ---
         let bg = SKShapeNode(rect: CGRect(x: xLeft, y: yTop, width: barWidth, height: barHeight), cornerRadius: corner)
-        bg.fillColor = SKColor(white: 0.0, alpha: 0.35)
-        bg.strokeColor = SKColor(white: 1.0, alpha: 0.20)
-        bg.lineWidth = 2
+        bg.fillColor = SKColor(white: 0.0, alpha: 0.28)
+        bg.strokeColor = SKColor(white: 1.0, alpha: 0.16)
+        bg.lineWidth = 1.5
         bg.zPosition = 240
 
         // --- Fill Bar ---
@@ -46,34 +44,36 @@ extension GameScene {
         fill.strokeColor = .clear
         fill.zPosition = 241
 
-        // --- Boss Name (über der Bar) ---
-        let name = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        // ✅ Boss Name IN der Bar
+        let name = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
         name.text = level.config.bossName ?? "BOSS"
-        name.fontSize = 16
-        name.fontColor = .white
+        name.fontColor = SKColor(white: 1.0, alpha: 0.88)
+        name.fontSize = isPortrait ? 11 : 10
         name.horizontalAlignmentMode = .center
         name.verticalAlignmentMode = .center
-        name.position = CGPoint(x: 0, y: yTop + barHeight + 16)
+        name.position = CGPoint(x: 0, y: yTop + barHeight / 2)
         name.zPosition = 242
 
         // --- Phase Tag (unter der Bar, Capsule) ---
         let phase = SKLabelNode(fontNamed: "AvenirNext-Bold")
         phase.text = "PHASE 1"
-        phase.fontSize = 20
+        phase.fontSize = isPortrait ? 13 : 12
         phase.fontColor = .yellow
         phase.horizontalAlignmentMode = .center
         phase.verticalAlignmentMode = .center
-        phase.position = CGPoint(x: 0, y: yTop - 26)
         phase.zPosition = 242
 
-        let phaseBgSize = CGSize(width: 170, height: 36)
-        let phaseBg = SKShapeNode(rectOf: phaseBgSize, cornerRadius: 12)
+        let phaseBgSize = CGSize(width: isPortrait ? 128 : 120, height: isPortrait ? 26 : 24)
+        let phaseBg = SKShapeNode(rectOf: phaseBgSize, cornerRadius: phaseBgSize.height / 2)
         phaseBg.name = "bossPhaseBg"
-        phaseBg.fillColor = SKColor(white: 0.0, alpha: 0.45)
-        phaseBg.strokeColor = SKColor(white: 1.0, alpha: 0.14)
-        phaseBg.lineWidth = 2
-        phaseBg.position = phase.position
+        phaseBg.fillColor = SKColor(white: 0.0, alpha: 0.40)
+        phaseBg.strokeColor = SKColor(white: 1.0, alpha: 0.12)
+        phaseBg.lineWidth = 1.5
         phaseBg.zPosition = 241
+
+        let phaseY = yTop - (isPortrait ? 18 : 16)
+        phase.position = CGPoint(x: 0, y: phaseY)
+        phaseBg.position = phase.position
 
         // Add to HUD
         hudNode.addChild(bg)
@@ -84,7 +84,7 @@ extension GameScene {
 
         bossHealthBarBg = bg
         bossHealthBarFill = fill
-        bossHealthLabel = name
+        bossHealthLabel = name          // <- Name sitzt jetzt in der Bar
         bossPhaseLabel = phase
 
         updateBossHUD()
@@ -100,13 +100,12 @@ extension GameScene {
 
         let pct = max(0, min(1, CGFloat(hp) / CGFloat(maxHP)))
 
-        // Bar-Geometrie aus BG ableiten (damit width immer korrekt ist)
-        let bounds = bg.path?.boundingBox ?? CGRect(x: -180, y: 0, width: 360, height: 16)
+        let bounds = bg.path?.boundingBox ?? CGRect(x: -130, y: 0, width: 260, height: 8)
         let barWidth = bounds.width
         let barHeight = bounds.height
         let xLeft = bounds.minX
         let yTop = bounds.minY
-        let corner: CGFloat = 6
+        let corner: CGFloat = barHeight / 2
 
         fill.path = CGPath(
             roundedRect: CGRect(x: xLeft, y: yTop, width: barWidth * pct, height: barHeight),
@@ -130,7 +129,6 @@ extension GameScene {
         bossHealthBarFill?.removeFromParent()
         bossHealthLabel?.removeFromParent()
         bossPhaseLabel?.removeFromParent()
-
         hudNode.childNode(withName: "bossPhaseBg")?.removeFromParent()
 
         bossHealthBarBg = nil
@@ -138,11 +136,11 @@ extension GameScene {
         bossHealthLabel = nil
         bossPhaseLabel = nil
     }
-    
-    func relayoutBossHUD() {
-        guard boss != nil else { return } // nur wenn Boss-Level aktiv
 
-        // Wenn BossHUD noch nicht existiert -> aufbauen
+    func relayoutBossHUD() {
+        guard boss != nil else { return }
+
+        // Falls HUD fehlt -> neu aufbauen
         if bossHealthBarBg == nil || bossHealthBarFill == nil || bossHealthLabel == nil || bossPhaseLabel == nil {
             setupBossHUD()
             return
@@ -157,25 +155,39 @@ extension GameScene {
         else { return }
 
         let baseTopY = playerHPBg.position.y
-        let bossBarY = baseTopY - 55
+        let bossBarY = baseTopY - 26
 
-        let barWidth: CGFloat = min(size.width * 0.62, 520)
-        let barHeight: CGFloat = 16
-        let corner: CGFloat = 6
+        let isPortrait = size.height > size.width
+        let barWidth: CGFloat = min(size.width * (isPortrait ? 0.52 : 0.42), 260)
+        let barHeight: CGFloat = isPortrait ? 10 : 8
+        let corner: CGFloat = barHeight / 2
 
         let xLeft = -barWidth / 2
         let yTop  = bossBarY
 
-        bg.path = CGPath(roundedRect: CGRect(x: xLeft, y: yTop, width: barWidth, height: barHeight),
-                         cornerWidth: corner, cornerHeight: corner, transform: nil)
+        bg.path = CGPath(
+            roundedRect: CGRect(x: xLeft, y: yTop, width: barWidth, height: barHeight),
+            cornerWidth: corner,
+            cornerHeight: corner,
+            transform: nil
+        )
 
-        // Fill wird in updateBossHUD() korrekt auf pct gesetzt – wir setzen hier erstmal volle Breite,
-        // dann updateBossHUD() aufrufen.
-        fill.path = CGPath(roundedRect: CGRect(x: xLeft, y: yTop, width: barWidth, height: barHeight),
-                           cornerWidth: corner, cornerHeight: corner, transform: nil)
+        // Fill wird gleich in updateBossHUD() korrekt auf pct gesetzt
+        fill.path = CGPath(
+            roundedRect: CGRect(x: xLeft, y: yTop, width: barWidth, height: barHeight),
+            cornerWidth: corner,
+            cornerHeight: corner,
+            transform: nil
+        )
 
-        name.position = CGPoint(x: 0, y: yTop + barHeight + 16)
-        phase.position = CGPoint(x: 0, y: yTop - 26)
+        // ✅ Name sitzt IN der Bar
+        name.fontSize = isPortrait ? 11 : 10
+        name.position = CGPoint(x: 0, y: yTop + barHeight / 2)
+
+        // Phase Capsule
+        phase.fontSize = isPortrait ? 13 : 12
+        let phaseY = yTop - (isPortrait ? 18 : 16)
+        phase.position = CGPoint(x: 0, y: phaseY)
         phaseBg.position = phase.position
 
         updateBossHUD()
