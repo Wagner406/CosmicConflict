@@ -120,7 +120,3 @@ struct GameView: View {
         }
     }
 }
-
-#Preview {
-    GameView(showGame: .constant(true), level: GameLevels.level1)
-}

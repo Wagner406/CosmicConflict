@@ -12,18 +12,38 @@ extension GameScene {
     func setupHUD() {
         cameraNode.addChild(hudNode)
 
-        let barWidth = size.width * 0.4
-        let barHeight: CGFloat = 16
+        // Falls HUD schon existiert -> aufräumen (optional, aber sauber)
+        hudNode.removeAllChildren()
+        playerHealthBar = nil
+        powerUpLabel = nil
+        roundLabel = nil
 
+        // --- Layout ---
+        let isLandscape = size.width > size.height
+
+        // SafeArea (wichtig für Notch / Dynamic Island)
+        let safeTop = view?.safeAreaInsets.top ?? 0
+
+        // Top-Abstand: Landscape etwas näher an den Rand
+        let topPadding: CGFloat = (isLandscape ? 18 : 28) + safeTop
+
+        // Eleganter: schmaler, dünner, aber mit Clamp
+        let barWidth: CGFloat  = min(size.width * (isLandscape ? 0.42 : 0.48), 420)
+        let barHeight: CGFloat = 10
+
+        let topY = size.height / 2 - topPadding
+
+        // --- HP Background ---
         let bg = SKSpriteNode(
-            color: .darkGray,
+            color: SKColor(white: 0.0, alpha: 1.0),
             size: CGSize(width: barWidth, height: barHeight)
         )
-        bg.alpha = 0.7
-        bg.position = CGPoint(x: 0, y: size.height / 2 - barHeight * 5)
+        bg.alpha = 0.28
+        bg.position = CGPoint(x: 0, y: topY)
         bg.zPosition = 200
         bg.name = "playerHPBackground"
 
+        // --- HP Fill ---
         let bar = SKSpriteNode(
             color: .green,
             size: CGSize(width: barWidth, height: barHeight)
@@ -39,39 +59,37 @@ extension GameScene {
         playerHealthBar = bar
         updatePlayerHealthBar()
 
-        // Round label (oben links)
-        let round = SKLabelNode(fontNamed: "AvenirNext-Bold")
-        round.fontSize = 20
+        // --- Round label (links oben, aligned zur Bar) ---
+        let round = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+        round.fontSize = 18
         round.fontColor = .white
         round.horizontalAlignmentMode = .left
         round.verticalAlignmentMode = .center
 
-        let margin: CGFloat = 20
+        let margin: CGFloat = 18
         round.position = CGPoint(
             x: -size.width / 2 + margin,
-            y: bg.position.y
+            y: topY
         )
         round.zPosition = 210
         round.text = "Round \(currentRound)"
-
         hudNode.addChild(round)
         roundLabel = round
 
-        // PowerUp label (oben rechts)
-        let powerLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
-        powerLabel.fontSize = 20
+        // --- PowerUp label (rechts oben, aligned zur Bar) ---
+        let powerLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+        powerLabel.fontSize = 18
         powerLabel.fontColor = .cyan
         powerLabel.horizontalAlignmentMode = .right
         powerLabel.verticalAlignmentMode = .center
 
         powerLabel.position = CGPoint(
             x: size.width / 2 - margin,
-            y: bg.position.y
+            y: topY
         )
         powerLabel.zPosition = 210
         powerLabel.text = ""
         powerLabel.isHidden = true
-
         hudNode.addChild(powerLabel)
         powerUpLabel = powerLabel
     }
@@ -81,9 +99,7 @@ extension GameScene {
     func updatePlayerHealthBar() {
         guard let bar = playerHealthBar else { return }
 
-        // ✅ Schutz gegen Division by Zero
         let maxHP = max(1, playerMaxHP)
-
         let fraction = max(0, min(1, CGFloat(playerHP) / CGFloat(maxHP)))
         bar.xScale = fraction
 
@@ -111,7 +127,7 @@ extension GameScene {
             label.isHidden = true
         }
     }
-    
+
     func showLevelCompleteBanner() {
         let label = SKLabelNode(fontNamed: "AvenirNext-Bold")
         label.text = "LEVEL COMPLETE"
@@ -130,30 +146,34 @@ extension GameScene {
 
         label.run(.sequence([fadeIn, wait, fadeOut, remove]))
     }
-    
+
+    // MARK: - Dynamic Relayout (Rotation / Resize)
+
     func relayoutHUD() {
-        // --- Player HP Background ---
         guard let playerBg = hudNode.childNode(withName: "playerHPBackground") as? SKSpriteNode,
               let playerBar = playerBg.childNode(withName: "playerHPBar") as? SKSpriteNode
         else { return }
 
-        let barWidth = size.width * 0.4
-        let barHeight: CGFloat = 16
+        let isLandscape = size.width > size.height
+        let safeTop = view?.safeAreaInsets.top ?? 0
+        let topPadding: CGFloat = (isLandscape ? 18 : 28) + safeTop
+
+        let barWidth: CGFloat  = min(size.width * (isLandscape ? 0.42 : 0.48), 420)
+        let barHeight: CGFloat = 10
+
+        let topY = size.height / 2 - topPadding
 
         playerBg.size = CGSize(width: barWidth, height: barHeight)
-        playerBg.position = CGPoint(x: 0, y: size.height / 2 - barHeight * 5)
+        playerBg.position = CGPoint(x: 0, y: topY)
 
-        // HP Bar (Fill)
         playerBar.size = CGSize(width: barWidth, height: barHeight)
         playerBar.position = CGPoint(x: -barWidth / 2, y: 0)
 
-        // --- Round + PowerUp Labels ---
-        let margin: CGFloat = 20
+        let margin: CGFloat = 18
+        roundLabel?.position = CGPoint(x: -size.width / 2 + margin, y: topY)
+        powerUpLabel?.position = CGPoint(x: size.width / 2 - margin, y: topY)
 
-        roundLabel?.position = CGPoint(x: -size.width / 2 + margin, y: playerBg.position.y)
-        powerUpLabel?.position = CGPoint(x:  size.width / 2 - margin, y: playerBg.position.y)
-
-        // Boss HUD folgt automatisch, wenn wir es auch relayouten:
+        // Boss HUD folgt mit (falls aktiv)
         relayoutBossHUD()
     }
 }
