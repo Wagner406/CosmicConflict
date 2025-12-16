@@ -46,6 +46,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     var bossHealthLabel: SKLabelNode?
     var bossPhaseLabel: SKLabelNode?
 
+    // Pause Overlay
+    var pauseOverlayDim: SKSpriteNode?
+    var pauseOverlayPanel: SKShapeNode?
+    var pauseResumeButton: SKShapeNode?
+    var pauseMenuButton: SKShapeNode?
+
     // Camera
     let cameraNode = SKCameraNode()
     let cameraZoom: CGFloat = 1.5
@@ -69,6 +75,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var enemySlideSystem = EnemySlideSystem()
     private let enemySlideDamping: CGFloat = 0.86
 
+    // MARK: - Pause State
+    var isGamePaused: Bool = false
+
     // Combat + Spawning
     private var combatAndSpawning = CombatAndSpawnSystem()
 
@@ -91,11 +100,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // MARK: - Combat / Timers
 
-    // Gegner-Feuerrate
     let enemyFireInterval: TimeInterval = 1.5
     var lastEnemyFireTime: TimeInterval = 0
 
-    // Zufällige Asteroiden-Spawns (fliegende Asteroiden)
     var lastAsteroidSpawnTime: TimeInterval = 0
     var nextAsteroidSpawnInterval: TimeInterval = 0
     let maxFlyingAsteroids = 4
@@ -104,16 +111,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     var playerMaxHP: Int = 100
     var playerHP: Int = 100
-
-    /// Aktuelle Runde (1–5 … oder passend zur Level-Config)
     var currentRound: Int = 1
 
-    // Hit-Cooldown für den Spieler
     var playerLastHitTime: TimeInterval = 0
     let playerHitCooldown: TimeInterval = 1.0
     var isPlayerInvulnerable: Bool = false
 
-    // Zeit aus update(), damit didBegin weiß, welche Zeit gilt
     var currentTimeForCollisions: TimeInterval = 0
 
     // MARK: - Powerups
@@ -128,11 +131,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     var lastPowerUpSpawnTime: TimeInterval = 0
     let powerUpMinInterval: TimeInterval = 15.0
 
-    // Triple-Shot
     var isTripleShotActive: Bool = false
     var tripleShotEndTime: TimeInterval = 0
 
-    // Shield
     var isShieldActive: Bool = false
     var shieldEndTime: TimeInterval = 0
     var shieldNode: SKSpriteNode?
@@ -160,7 +161,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     var bossBurstNextShotTime: TimeInterval = 0
 
     var bossLastPauseTriggerTime: TimeInterval = 0
-
     var bossNextShieldPauseTime: TimeInterval = 0
     var bossDidSpawnMinionsThisPause: Bool = false
 
@@ -182,14 +182,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         setupEnemies()
         setupPlayerShip()
 
-        // Camera must exist before VFX init
         setupCamera()
         self.camera = cameraNode
 
-        // ✅ AUDIO LISTENER: damit Musik/SFX nicht an (0,0) kleben
+        // ✅ AUDIO LISTENER
         self.listener = cameraNode
 
-        // VFX init AFTER camera exists
         vfx = VFXSystem(scene: self, camera: cameraNode, zPosition: 900)
         vfx.setCamera(cameraNode)
 
@@ -197,13 +195,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         SoundManager.shared.startMusicIfNeeded(for: level.id, in: self)
 
-        // Wave start
         if level.type == .normal && (level.config.rounds?.isEmpty == false) {
             startRound(1)
             showRoundAnnouncement(forRound: 1)
         }
 
-        // Boss setup
         if level.type == .boss {
             setupBossIfNeeded()
             setupBossHUD()
@@ -212,7 +208,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             cameraNode.setScale(bossCameraZoom)
             vfx.setCamera(cameraNode)
 
-            // falls Boss-Zoom später gesetzt wird: Listener bleibt Kamera
             self.listener = cameraNode
         }
     }
@@ -223,28 +218,74 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     private func resetRuntimeState() {
-        // Player movement system state
         playerMovement.reset()
-
-        // Enemy slide system state
         enemySlideSystem.reset()
-
-        // Combat & spawning system state
         combatAndSpawning.reset()
 
-        // flying asteroid timers
         lastAsteroidSpawnTime = 0
         nextAsteroidSpawnInterval = TimeInterval.random(in: 10...20)
 
-        // powerups
         lastPowerUpSpawnTime = 0
 
         particles.reset()
     }
 
+    // MARK: - Pause Logic
+
+    func pauseGame() {
+        guard !isGamePaused else { return }
+        isGamePaused = true
+
+        hud_showPauseOverlay()
+
+        // Pause ALLES außer HUD/Kamera
+        for child in children {
+            if child === cameraNode { continue }   // HUD bleibt klickbar
+            child.isPaused = true
+        }
+
+        physicsWorld.speed = 0
+    }
+
+    func resumeGame() {
+        guard isGamePaused else { return }
+        isGamePaused = false
+
+        hud_hidePauseOverlay()
+
+        for child in children {
+            if child === cameraNode { continue }
+            child.isPaused = false
+        }
+
+        physicsWorld.speed = 1
+
+        // ✅ verhindert DeltaTime-Spike nach Pause
+        lastUpdateTime = 0
+    }
+
+    func exitToMainMenu() {
+        SoundManager.shared.stopMusic()
+
+        isGamePaused = false
+        physicsWorld.speed = 1
+        hud_hidePauseOverlay()
+
+        onLevelCompleted?()
+    }
+
     // MARK: - Touch
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let t = touches.first else { return }
+        let p = t.location(in: self)
+
+        // HUD first (Pause Button + Overlay Buttons)
+        if hudHandleTap(at: p) { return }
+
+        // Wenn pausiert: kein Gameplay
+        if isGamePaused { return }
+
         shoot()
     }
 
@@ -263,6 +304,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Game Loop
 
     override func update(_ currentTime: TimeInterval) {
+        // ✅ WICHTIG: stoppt AI/Combat/Spawn/etc. (EnemyShips bewegen sich sonst weiter)
+        if isGamePaused { return }
+
         guard let playerShip = playerShip, !isLevelCompleted else { return }
 
         vfx?.beginFrame()
@@ -273,7 +317,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         handlePowerUpSpawning(currentTime: currentTime)
         updatePowerUpDurations(currentTime: currentTime)
 
-        // Player movement handled by system
         playerMovement.update(
             player: playerShip,
             direction: currentDirection,
@@ -288,15 +331,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         updateEnemyMovementAndSlide(deltaTime: deltaTime)
 
-        // Camera follows player
         cameraNode.position = playerShip.position
 
-        // Listener folgt Kamera IMMER (Rotation/Resize-Safety)
         if self.listener !== cameraNode {
             self.listener = cameraNode
         }
 
-        // Combat + spawning handled by system
         combatAndSpawning.update(scene: self, currentTime: currentTime)
     }
 
@@ -327,8 +367,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         playerShip.position = CGPoint(x: clampedX, y: clampedY)
     }
 
-    // MARK: - Update: Continuous Systems
-
     private func updateContinuousSystems(currentTime: TimeInterval, player: SKSpriteNode) {
         particles.update(in: self,
                          currentTime: currentTime,
@@ -340,16 +378,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         environment.update(in: self, currentTime: currentTime)
     }
 
-    // MARK: - Update: Enemy AI + Slide System
-
     private func updateEnemyMovementAndSlide(deltaTime: CGFloat) {
-        // 1) snapshot BEFORE AI
         enemySlideSystem.beginFrame(for: enemyShips)
-
-        // 2) AI movement (your AI.swift)
         updateChaser(deltaTime: deltaTime)
-
-        // 3) apply slide AFTER AI
         enemySlideSystem.endFrame(
             for: enemyShips,
             deltaTime: deltaTime,
@@ -399,6 +430,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     override func didSimulatePhysics() {
         super.didSimulatePhysics()
 
+        // ✅ auch hier: nichts updaten wenn pausiert
+        if isGamePaused { return }
+
         if level.type == .boss {
             bossFollowShieldIfNeeded()
         }
@@ -409,8 +443,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
         relayoutHUD()
-
-        // ✅ falls iOS/SpriteKit den Listener resetten sollte
         self.listener = cameraNode
     }
 
