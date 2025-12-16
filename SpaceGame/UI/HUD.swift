@@ -59,21 +59,20 @@ extension GameScene {
         playerHealthBar = bar
         updatePlayerHealthBar()
 
-        // --- Round label (links oben, aligned zur Bar) ---
+        // ROUND LABEL (zentral IN der HP-Bar)
         let round = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-        round.fontSize = 18
-        round.fontColor = .white
-        round.horizontalAlignmentMode = .left
+        round.name = "roundLabel"
+        round.fontSize = 10
+        round.fontColor = .yellow
+        round.alpha = 0.85
+        round.horizontalAlignmentMode = .center
         round.verticalAlignmentMode = .center
+        round.zPosition = bg.zPosition + 5
 
-        let margin: CGFloat = 18
-        round.position = CGPoint(
-            x: -size.width / 2 + margin,
-            y: topY
-        )
-        round.zPosition = 210
-        round.text = "Round \(currentRound)"
-        hudNode.addChild(round)
+        // als Child der BG-Bar -> bleibt bei Resize/Rotation korrekt
+        round.position = .zero
+        round.text = "ROUND \(currentRound)"
+        bg.addChild(round)
         roundLabel = round
 
         // --- PowerUp label (rechts oben, aligned zur Bar) ---
@@ -83,6 +82,7 @@ extension GameScene {
         powerLabel.horizontalAlignmentMode = .right
         powerLabel.verticalAlignmentMode = .center
 
+        let margin: CGFloat = 18
         powerLabel.position = CGPoint(
             x: size.width / 2 - margin,
             y: topY
@@ -113,7 +113,7 @@ extension GameScene {
     }
 
     func updateRoundLabel() {
-        roundLabel?.text = "Round \(currentRound)"
+        roundLabel?.text = "ROUND \(currentRound)"
     }
 
     func setActivePowerUpLabel(_ text: String?) {
@@ -170,7 +170,6 @@ extension GameScene {
         playerBar.position = CGPoint(x: -barWidth / 2, y: 0)
 
         let margin: CGFloat = 18
-        roundLabel?.position = CGPoint(x: -size.width / 2 + margin, y: topY)
         powerUpLabel?.position = CGPoint(x: size.width / 2 - margin, y: topY)
 
         // Boss HUD folgt mit (falls aktiv)
