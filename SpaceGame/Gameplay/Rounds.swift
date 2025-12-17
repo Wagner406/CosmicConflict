@@ -21,13 +21,13 @@ extension GameScene {
             case 1:
                 return RoundConfig(spawnInterval: 5.0, enemyCount: 5)
             case 2:
-                return RoundConfig(spawnInterval: 4.0, enemyCount: 10)
+                return RoundConfig(spawnInterval: 4.0, enemyCount: 7)
             case 3:
-                return RoundConfig(spawnInterval: 3.0, enemyCount: 15)
+                return RoundConfig(spawnInterval: 3.0, enemyCount: 9)
             case 4:
-                return RoundConfig(spawnInterval: 2.0, enemyCount: 15)
+                return RoundConfig(spawnInterval: 2.0, enemyCount: 11)
             case 5:
-                return RoundConfig(spawnInterval: 1.0, enemyCount: 15)
+                return RoundConfig(spawnInterval: 1.0, enemyCount: 13)
             default:
                 return nil
             }

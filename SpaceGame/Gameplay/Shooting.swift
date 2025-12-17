@@ -133,8 +133,21 @@ extension GameScene {
     func handleEnemyShooting(currentTime: TimeInterval) {
         guard let playerShip = playerShip else { return }
 
+        let shootRange: CGFloat = 750   // <- hier feinjustieren (600–900 meist gut)
+        let shootRangeSq = shootRange * shootRange
+
         for enemy in enemyShips {
             if enemy.userData == nil { enemy.userData = NSMutableDictionary() }
+
+            // Range check (schnell: squared distance)
+            let dx = playerShip.position.x - enemy.position.x
+            let dy = playerShip.position.y - enemy.position.y
+            let distSq = dx*dx + dy*dy
+            if distSq > shootRangeSq {
+                // optional: nextFireTime etwas nach hinten schieben, damit sie nicht "stottern"
+                enemy.userData?["nextFireTime"] = currentTime + TimeInterval.random(in: 0.4...0.9)
+                continue
+            }
 
             if enemy.userData?["nextFireTime"] == nil {
                 let initialOffset = TimeInterval.random(in: 0.0...enemyFireInterval)
@@ -147,8 +160,6 @@ extension GameScene {
             if currentTime >= nextFire {
 
                 // look at player just before shooting
-                let dx = playerShip.position.x - enemy.position.x
-                let dy = playerShip.position.y - enemy.position.y
                 let desiredZ = atan2(dy, dx) - .pi / 2
 
                 enemy.removeAction(forKey: "aimRotate")
@@ -204,7 +215,7 @@ extension GameScene {
         body.affectedByGravity = false
         body.allowsRotation = false
 
-        // ✅ for performance: enemy bullets are slower, so precise is not needed
+        // for performance: enemy bullets are slower, so precise is not needed
         body.usesPreciseCollisionDetection = false
 
         body.categoryBitMask = PhysicsCategory.enemyBullet

@@ -20,10 +20,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // MARK: - Level / Callback
 
-    /// Welches Level gespielt wird (wird von GameView gesetzt)
     var level: GameLevel!
-
-    /// Callback, um nach Level-Ende zurück ins Menü zu springen
     var onLevelCompleted: (() -> Void)?
 
     // MARK: - Nodes
@@ -59,34 +56,23 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // MARK: - Systems
 
-    // Environment (Stars, ToxicGas, Nebula, ShootingStars)
-    private let environment = EnvironmentSystem()
-
-    // Particle (continuous)
-    private let particles = ParticleSystem()
-
-    // VFX (one-shot)
+    let environment = EnvironmentSystem()
+    let particles = ParticleSystem()
     var vfx: VFXSystem!
 
-    // Player Movement
-    private var playerMovement = PlayerMovementSystem()
+    var playerMovement = PlayerMovementSystem()
+    var enemySlideSystem = EnemySlideSystem()
+    let enemySlideDamping: CGFloat = 0.86
 
-    // Enemy Slide
-    private var enemySlideSystem = EnemySlideSystem()
-    private let enemySlideDamping: CGFloat = 0.86
+    var combatAndSpawning = CombatAndSpawnSystem()
 
     // MARK: - Pause State
-    var isGamePaused: Bool = false
 
-    // Combat + Spawning
-    private var combatAndSpawning = CombatAndSpawnSystem()
+    var isGamePaused: Bool = false
 
     // MARK: - Enemies
 
-    /// Alle Gegner (Asteroiden + verfolgenden Schiffe)
     var enemies: [SKSpriteNode] = []
-
-    /// Nur die verfolgenden Gegner-Schiffe (für AI, Schießen, Runden)
     var enemyShips: [SKSpriteNode] = []
 
     // MARK: - Movement
@@ -165,293 +151,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     var bossDidSpawnMinionsThisPause: Bool = false
 
     // MARK: - Boss (Phase 3 extra state)
+
     var bossPhase3UseShotgunNext: Bool = true
     var bossNextMinionSpawnTime: TimeInterval = 0
 
-    // MARK: - Lifecycle
-
-    override func didMove(to view: SKView) {
-        configurePhysics()
-
-        if level == nil {
-            level = GameLevels.level1
-        }
-
-        setupLevel()
-        environment.buildForCurrentLevel(in: self)
-        setupEnemies()
-        setupPlayerShip()
-
-        setupCamera()
-        self.camera = cameraNode
-
-        // ✅ AUDIO LISTENER
-        self.listener = cameraNode
-
-        vfx = VFXSystem(scene: self, camera: cameraNode, zPosition: 900)
-        vfx.setCamera(cameraNode)
-
-        resetRuntimeState()
-
-        SoundManager.shared.startMusicIfNeeded(for: level.id, in: self)
-
-        if level.type == .normal && (level.config.rounds?.isEmpty == false) {
-            startRound(1)
-            showRoundAnnouncement(forRound: 1)
-        }
-
-        if level.type == .boss {
-            setupBossIfNeeded()
-            setupBossHUD()
-            updateBossHUD()
-
-            cameraNode.setScale(bossCameraZoom)
-            vfx.setCamera(cameraNode)
-
-            self.listener = cameraNode
-        }
-    }
-
-    private func configurePhysics() {
-        physicsWorld.gravity = .zero
-        physicsWorld.contactDelegate = self
-    }
-
-    private func resetRuntimeState() {
-        playerMovement.reset()
-        enemySlideSystem.reset()
-        combatAndSpawning.reset()
-
-        lastAsteroidSpawnTime = 0
-        nextAsteroidSpawnInterval = TimeInterval.random(in: 10...20)
-
-        lastPowerUpSpawnTime = 0
-
-        particles.reset()
-    }
-
-    // MARK: - Pause Logic
-
-    func pauseGame() {
-        guard !isGamePaused else { return }
-        isGamePaused = true
-
-        hud_showPauseOverlay()
-
-        // Pause ALLES außer HUD/Kamera
-        for child in children {
-            if child === cameraNode { continue }   // HUD bleibt klickbar
-            child.isPaused = true
-        }
-
-        physicsWorld.speed = 0
-    }
-
-    func resumeGame() {
-        guard isGamePaused else { return }
-        isGamePaused = false
-
-        hud_hidePauseOverlay()
-
-        for child in children {
-            if child === cameraNode { continue }
-            child.isPaused = false
-        }
-
-        physicsWorld.speed = 1
-
-        // ✅ verhindert DeltaTime-Spike nach Pause
-        lastUpdateTime = 0
-    }
-
-    func exitToMainMenu() {
-        SoundManager.shared.stopMusic()
-
-        isGamePaused = false
-        physicsWorld.speed = 1
-        hud_hidePauseOverlay()
-
-        onLevelCompleted?()
-    }
-
-    // MARK: - Touch
-
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let t = touches.first else { return }
-        let p = t.location(in: self)
-
-        // HUD first (Pause Button + Overlay Buttons)
-        if hudHandleTap(at: p) { return }
-
-        // Wenn pausiert: kein Gameplay
-        if isGamePaused { return }
-
-        shoot()
-    }
-
-    // MARK: - SwiftUI Controls
-
-    func startMoving(_ direction: ShipDirection) {
-        currentDirection = direction
-    }
-
-    func stopMoving(_ direction: ShipDirection) {
-        if currentDirection == direction {
-            currentDirection = nil
-        }
-    }
-
-    // MARK: - Game Loop
-
-    override func update(_ currentTime: TimeInterval) {
-        // ✅ WICHTIG: stoppt AI/Combat/Spawn/etc. (EnemyShips bewegen sich sonst weiter)
-        if isGamePaused { return }
-
-        guard let playerShip = playerShip, !isLevelCompleted else { return }
-
-        vfx?.beginFrame()
-        currentTimeForCollisions = currentTime
-
-        let deltaTime = computeDeltaTime(currentTime)
-
-        handlePowerUpSpawning(currentTime: currentTime)
-        updatePowerUpDurations(currentTime: currentTime)
-
-        playerMovement.update(
-            player: playerShip,
-            direction: currentDirection,
-            deltaTime: deltaTime,
-            moveSpeed: moveSpeed,
-            rotateSpeed: rotateSpeed
-        )
-
-        clampPlayerToLevelBounds(playerShip)
-
-        updateContinuousSystems(currentTime: currentTime, player: playerShip)
-
-        updateEnemyMovementAndSlide(deltaTime: deltaTime)
-
-        cameraNode.position = playerShip.position
-
-        if self.listener !== cameraNode {
-            self.listener = cameraNode
-        }
-
-        combatAndSpawning.update(scene: self, currentTime: currentTime)
-    }
-
-    private func computeDeltaTime(_ currentTime: TimeInterval) -> CGFloat {
-        let deltaTime: CGFloat
-        if lastUpdateTime == 0 {
-            deltaTime = 0
-        } else {
-            deltaTime = CGFloat(currentTime - lastUpdateTime)
-        }
-        lastUpdateTime = currentTime
-        return deltaTime
-    }
-
-    private func clampPlayerToLevelBounds(_ playerShip: SKSpriteNode) {
-        guard let levelNode = levelNode else { return }
-
-        let marginX = playerShip.size.width / 2
-        let marginY = playerShip.size.height / 2
-
-        let minX = levelNode.frame.minX + marginX
-        let maxX = levelNode.frame.maxX - marginX
-        let minY = levelNode.frame.minY + marginY
-        let maxY = levelNode.frame.maxY - marginY
-
-        let clampedX = max(minX, min(maxX, playerShip.position.x))
-        let clampedY = max(minY, min(maxY, playerShip.position.y))
-        playerShip.position = CGPoint(x: clampedX, y: clampedY)
-    }
-
-    private func updateContinuousSystems(currentTime: TimeInterval, player: SKSpriteNode) {
-        particles.update(in: self,
-                         currentTime: currentTime,
-                         player: player,
-                         enemyShips: enemyShips,
-                         enemies: enemies,
-                         boss: boss)
-
-        environment.update(in: self, currentTime: currentTime)
-    }
-
-    private func updateEnemyMovementAndSlide(deltaTime: CGFloat) {
-        enemySlideSystem.beginFrame(for: enemyShips)
-        updateChaser(deltaTime: deltaTime)
-        enemySlideSystem.endFrame(
-            for: enemyShips,
-            deltaTime: deltaTime,
-            damping: enemySlideDamping
-        )
-    }
-
-    // MARK: - Player Damage
-
-    func applyDamageToPlayer(amount: Int) {
-        if isShieldActive { return }
-
-        if isPlayerInvulnerable &&
-            (currentTimeForCollisions - playerLastHitTime) < playerHitCooldown {
-            return
-        }
-
-        playerLastHitTime = currentTimeForCollisions
-        isPlayerInvulnerable = true
-
-        playerHP = max(0, playerHP - amount)
-        updatePlayerHealthBar()
-
-        startPlayerInvulnerabilityBlink()
-    }
-
-    func startPlayerInvulnerabilityBlink() {
-        guard let ship = playerShip else { return }
-
-        ship.removeAction(forKey: "invulnBlink")
-
-        let fadeOut = SKAction.fadeAlpha(to: 0.3, duration: 0.1)
-        let fadeIn  = SKAction.fadeAlpha(to: 1.0, duration: 0.1)
-        let blink   = SKAction.sequence([fadeOut, fadeIn])
-        let repeatBlink = SKAction.repeat(blink, count: 5)
-
-        let end = SKAction.run { [weak self] in
-            self?.isPlayerInvulnerable = false
-            self?.playerShip.alpha = 1.0
-        }
-
-        ship.run(.sequence([repeatBlink, end]), withKey: "invulnBlink")
-    }
-
-    // MARK: - Post-Physics
-
-    override func didSimulatePhysics() {
-        super.didSimulatePhysics()
-
-        // ✅ auch hier: nichts updaten wenn pausiert
-        if isGamePaused { return }
-
-        if level.type == .boss {
-            bossFollowShieldIfNeeded()
-        }
-    }
-
-    // MARK: - Dynamic Layout (Rotation / Resize)
-
-    override func didChangeSize(_ oldSize: CGSize) {
-        super.didChangeSize(oldSize)
-        relayoutHUD()
-        self.listener = cameraNode
-    }
-
-    override func willMove(from view: SKView) {
-        super.willMove(from: view)
-        SoundManager.shared.stopMusic()
-    }
-
-    // MARK: - Enemy HP Scaling
+    // MARK: - Small Helpers (keep here)
 
     func enemyMaxHPForCurrentRound() -> Int {
         switch currentRound {

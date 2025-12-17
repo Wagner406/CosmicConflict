@@ -99,6 +99,8 @@ extension GameScene {
     func handlePowerUpPickup(_ node: SKSpriteNode) {
         guard let name = node.name else { return }
 
+        SoundManager.shared.playSFX(Sound.powerup, in: self)
+        
         node.removeFromParent()
         if activePowerUpNode == node {
             activePowerUpNode = nil

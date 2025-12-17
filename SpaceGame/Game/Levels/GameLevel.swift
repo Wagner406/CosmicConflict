@@ -58,10 +58,10 @@ enum GameLevels {
             wavesEnabled: true,
             rounds: [
                 RoundConfig(spawnInterval: 5.0, enemyCount: 5),
-                RoundConfig(spawnInterval: 4.0, enemyCount: 10),
-                RoundConfig(spawnInterval: 3.0, enemyCount: 15),
-                RoundConfig(spawnInterval: 2.0, enemyCount: 15),
-                RoundConfig(spawnInterval: 1.0, enemyCount: 15)
+                RoundConfig(spawnInterval: 4.0, enemyCount: 7),
+                RoundConfig(spawnInterval: 3.0, enemyCount: 9),
+                RoundConfig(spawnInterval: 2.0, enemyCount: 11),
+                RoundConfig(spawnInterval: 1.0, enemyCount: 13)
             ],
             bossName: nil,
             bossMaxHP: nil,
