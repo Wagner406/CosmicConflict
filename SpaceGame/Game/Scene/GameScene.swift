@@ -23,11 +23,20 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     var level: GameLevel!
     var onLevelCompleted: (() -> Void)?
     
-    // MARK: - Touch Steering
+    // MARK: - Floating Joystick (State)
+
+    var joystickBaseNode: SKShapeNode?
+    var joystickKnobNode: SKShapeNode?
+
+    var joystickBasePos: CGPoint = .zero
+    var joystickVector: CGVector = .zero   // -1 ... 1
+
+    let joystickRadius: CGFloat = 50
+    let joystickDeadZone: CGFloat = 6
+    
+    var joystickStrength: CGFloat = 0   // 0...1
+
     var steeringTouch: UITouch?
-    var steeringStartPoint: CGPoint = .zero
-    let steeringRadius: CGFloat = 80   // wie weit du "ziehen" kannst
-    let steeringDeadZone: CGFloat = 10 // kleine Bewegungen ignorieren
 
     // MARK: - Nodes
 
@@ -59,7 +68,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     let cameraNode = SKCameraNode()
     let cameraZoom: CGFloat = 1.5
     let bossCameraZoom: CGFloat = 2.1
-    
+
     // MARK: - GodMode
     var isGodModeEnabled: Bool = false
 
@@ -166,14 +175,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     var bossPhase3UseShotgunNext: Bool = true
     var bossNextMinionSpawnTime: TimeInterval = 0
-    
+
     // MARK: - Timer / Score
 
     var levelStartTime: TimeInterval = 0
     var pauseStartTime: TimeInterval = 0
     var pausedTimeAccumulated: TimeInterval = 0
 
-    // MARK: - Small Helpers (keep here)
+    // MARK: - Small Helpers
 
     func enemyMaxHPForCurrentRound() -> Int {
         switch currentRound {

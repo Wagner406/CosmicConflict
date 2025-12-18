@@ -144,24 +144,24 @@ extension GameScene {
         }
     }
 
-    func showLevelCompleteBanner() {
-        let label = SKLabelNode(fontNamed: "AvenirNext-Bold")
-        label.text = "LEVEL COMPLETE"
-        label.fontSize = 32
-        label.fontColor = .yellow
-        label.zPosition = 300
-        label.position = CGPoint(x: 0, y: 0)
-        label.alpha = 0
-
-        hudNode.addChild(label)
-
-        let fadeIn  = SKAction.fadeIn(withDuration: 0.3)
-        let wait    = SKAction.wait(forDuration: 1.2)
-        let fadeOut = SKAction.fadeOut(withDuration: 0.3)
-        let remove  = SKAction.removeFromParent()
-
-        label.run(.sequence([fadeIn, wait, fadeOut, remove]))
-    }
+//    func showLevelCompleteBanner() {
+//        let label = SKLabelNode(fontNamed: "AvenirNext-Bold")
+//        label.text = "LEVEL COMPLETE"
+//        label.fontSize = 32
+//        label.fontColor = .yellow
+//        label.zPosition = 300
+//        label.position = CGPoint(x: 0, y: 0)
+//        label.alpha = 0
+//
+//        hudNode.addChild(label)
+//
+//        let fadeIn  = SKAction.fadeIn(withDuration: 0.3)
+//        let wait    = SKAction.wait(forDuration: 1.2)
+//        let fadeOut = SKAction.fadeOut(withDuration: 0.3)
+//        let remove  = SKAction.removeFromParent()
+//
+//        label.run(.sequence([fadeIn, wait, fadeOut, remove]))
+//    }
 
     // MARK: - Dynamic Relayout (Rotation / Resize)
 

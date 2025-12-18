@@ -7,7 +7,8 @@ struct GameView: View {
     let level: GameLevel
     let isGodModeEnabled: Bool
 
-    @State private var scene: GameScene
+    // SKScene ist eine Referenzklasse -> kein @State nötig (und @State macht hier die Errors)
+    private let scene: GameScene
 
     init(
         showGame: Binding<Bool>,
@@ -32,7 +33,7 @@ struct GameView: View {
             showGame.wrappedValue = false
         }
 
-        _scene = State(initialValue: s)
+        self.scene = s
     }
 
     var body: some View {

@@ -11,13 +11,14 @@ extension GameScene {
 
     override func update(_ currentTime: TimeInterval) {
         if isGamePaused { return }
-        
+
         // Timer startet beim ersten Update-Frame
-        if levelStartTime == 0 {
-            levelStartTime = currentTime
-        }
-        
-        guard let playerShip = playerShip, !isLevelCompleted else { return }
+        if levelStartTime == 0 { levelStartTime = currentTime }
+
+        if isLevelCompleted || isPlayerDead { return }
+
+        // playerShip ist bei dir optional -> unwrap
+        guard let playerShip = self.playerShip else { return }
 
         vfx?.beginFrame()
         currentTimeForCollisions = currentTime
@@ -27,13 +28,30 @@ extension GameScene {
         handlePowerUpSpawning(currentTime: currentTime)
         updatePowerUpDurations(currentTime: currentTime)
 
-        playerMovement.update(
-            player: playerShip,
-            direction: currentDirection,
-            deltaTime: deltaTime,
-            moveSpeed: moveSpeed,
-            rotateSpeed: rotateSpeed
-        )
+        // Touch (Floating Joystick) hat Priorität
+        if joystickVector.dx != 0 || joystickVector.dy != 0 {
+
+            // Rotation (Ship schaut "nach oben" -> -pi/2 Offset)
+            let angle = atan2(joystickVector.dy, joystickVector.dx) - .pi / 2
+            playerShip.zRotation = angle
+
+            // ✅ Speed-Limiter: Strength ist 0...1 (durch clamp im Input!)
+            let speed = moveSpeed * joystickStrength
+
+            // Bewegung
+            playerShip.position.x += joystickVector.dx * speed * deltaTime
+            playerShip.position.y += joystickVector.dy * speed * deltaTime
+
+        } else {
+            // Laptop / Buttons
+            playerMovement.update(
+                player: playerShip,
+                direction: currentDirection,
+                deltaTime: deltaTime,
+                moveSpeed: moveSpeed,
+                rotateSpeed: rotateSpeed
+            )
+        }
 
         clampPlayerToLevelBounds(playerShip)
 
@@ -77,12 +95,14 @@ extension GameScene {
     }
 
     private func updateContinuousSystems(currentTime: TimeInterval, player: SKSpriteNode) {
-        particles.update(in: self,
-                         currentTime: currentTime,
-                         player: player,
-                         enemyShips: enemyShips,
-                         enemies: enemies,
-                         boss: boss)
+        particles.update(
+            in: self,
+            currentTime: currentTime,
+            player: player,
+            enemyShips: enemyShips,
+            enemies: enemies,
+            boss: boss
+        )
 
         environment.update(in: self, currentTime: currentTime)
     }
