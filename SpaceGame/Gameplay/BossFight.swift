@@ -380,6 +380,8 @@ extension GameScene {
         let newHP = max(0, hp - amount)
         boss.userData?["bossHP"] = newHP
 
+        SoundManager.shared.playRandomBossHit(in: self)
+        
         flashBossOnHit(boss)
 
         updateBossPhaseIfNeeded(currentTime: currentTimeForCollisions)
@@ -434,6 +436,8 @@ extension GameScene {
     // MARK: - Shield Visual
 
     private func applyBossShield(on boss: SKSpriteNode) {
+        SoundManager.shared.playSFX(Sound.shieldOn, in: self)
+        
         removeBossShield()
 
         let r = max(boss.size.width, boss.size.height) * 0.55
@@ -456,6 +460,10 @@ extension GameScene {
     }
 
     private func removeBossShield() {
+        guard bossShieldNode != nil else { return }
+
+        SoundManager.shared.playSFX(Sound.shieldOff, in: self)
+
         bossShieldNode?.removeAllActions()
         bossShieldNode?.removeFromParent()
         bossShieldNode = nil
@@ -470,10 +478,12 @@ extension GameScene {
     // MARK: - Shots
 
     private func bossFireSingle(from boss: SKSpriteNode, to target: CGPoint) {
+        SoundManager.shared.playSFX(Sound.multiShot, in: self)
         spawnBossBullet(from: boss.position, to: target, speed: 520)
     }
 
     private func bossFireShotgun(from boss: SKSpriteNode, to target: CGPoint, pelletCount: Int, spread: CGFloat) {
+        SoundManager.shared.playSFX(Sound.shotGun, in: self)
         let baseAngle = atan2(target.y - boss.position.y, target.x - boss.position.x)
 
         for i in 0..<pelletCount {

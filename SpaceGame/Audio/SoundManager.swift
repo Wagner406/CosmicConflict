@@ -5,15 +5,25 @@ enum Sound {
     static let playerShot = "PlayerShoot.wav"
     static let enemyShot  = "EnemyShoot.wav"
     static let powerup    = "PowerUp.wav"
-
+    static let shotGun    = "ShotGun.wav"
+    static let multiShot  = "MultiShoot.wav"
+    static let shieldOn   = "ShieldOn.wav"
+    static let shieldOff  = "ShieldOff.wav"
+    
     static let explosions = [
         "Explosion1.wav",
         "Explosion2.wav",
         "Explosion3.wav"
     ]
+    
+    static let hits = [
+        "Hit1.wav",
+        "Hit2.wav"
+    ]
 
     // Music
     static let level1Music = "Level1Music.mp3"
+    static let level2Music = "Level2Music.mp3"
 }
 
 final class SoundManager: NSObject {
@@ -23,27 +33,34 @@ final class SoundManager: NSObject {
 
     // 0.0 – 1.0
     var sfxVolume: Float = 0.08
-    var musicVolume: Float = 0.1
+    var musicVolume: Float = 0.08
 
     // MARK: - MUSIC (SpriteKit)
     private var musicNode: SKAudioNode?
 
     func startMusicIfNeeded(for levelId: Int, in scene: SKScene) {
-        guard levelId == 1 else { return }
 
-        // Wenn Node existiert aber NICHT im aktuellen Scene-Tree hängt -> neu starten
+        let file: String?
+        switch levelId {
+        case 1: file = Sound.level1Music
+        case 2: file = Sound.level2Music
+        default: file = nil
+        }
+
+        guard let musicFile = file else { return }
+
         if let node = musicNode {
             let isInThisScene = (node.scene === scene)
             let isInThisCamera = (scene.camera != nil && node.parent === scene.camera)
 
             if isInThisScene && isInThisCamera {
-                return // alles gut
+                return
             } else {
-                stopMusic() // alte Node weg, sonst "Lautsprecher-Punkt"
+                stopMusic()
             }
         }
 
-        playMusic(Sound.level1Music, in: scene, loop: true)
+        playMusic(musicFile, in: scene, loop: true)
     }
 
     func playMusic(_ file: String, in scene: SKScene, loop: Bool = true) {
@@ -103,6 +120,11 @@ final class SoundManager: NSObject {
     /// Convenience for your GameScene fix: SoundManager.shared.playRandomExplosion(in: self)
     func playRandomExplosion(in scene: SKScene? = nil) {
         guard let sound = Sound.explosions.randomElement() else { return }
+        playSFX(sound, in: scene)
+    }
+    
+    func playRandomBossHit(in scene: SKScene? = nil) {
+        guard let sound = Sound.hits.randomElement() else { return }
         playSFX(sound, in: scene)
     }
 }
