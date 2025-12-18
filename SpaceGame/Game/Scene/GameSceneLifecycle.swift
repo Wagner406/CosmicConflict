@@ -92,5 +92,15 @@ extension GameScene {
         levelStartTime = 0
         pauseStartTime = 0
         pausedTimeAccumulated = 0
+        
+        isPlayerDead = false
+        isLevelCompleted = false
+
+        // falls beim Sterben pausiert wurde:
+        physicsWorld.speed = 1
+        for child in children {
+            if child === cameraNode { continue }
+            child.isPaused = false
+        }
     }
 }

@@ -5,18 +5,25 @@ struct ContentView: View {
     @State private var showGame = false
     @State private var selectedLevel: GameLevel? = nil
 
+    // ✅ GodMode Toggle
+    @State private var isGodModeEnabled = false
+
     // damit es nach Rückkehr aus dem Spiel neu lädt
     @State private var refreshToken = UUID()
 
     var body: some View {
         if showGame, let selectedLevel {
-            GameView(showGame: $showGame, level: selectedLevel)
-                .onDisappear { refreshToken = UUID() } // reload stats when back
+            GameView(
+                showGame: $showGame,
+                level: selectedLevel,
+                isGodModeEnabled: isGodModeEnabled
+            )
+            .onDisappear { refreshToken = UUID() } // reload stats when back
         } else {
             ZStack {
                 Color.black.ignoresSafeArea()
 
-                VStack(spacing: 26) {
+                VStack(spacing: 22) {
                     Text("Space Game")
                         .font(.largeTitle)
                         .bold()
@@ -24,6 +31,18 @@ struct ContentView: View {
 
                     Text("Demo Build")
                         .foregroundColor(.gray)
+
+                    // ✅ GodMode Switch
+                    Toggle(isOn: $isGodModeEnabled) {
+                        Text("GodMode (invincible)")
+                            .foregroundColor(.white)
+                            .font(.headline)
+                    }
+                    .toggleStyle(SwitchToggleStyle(tint: .green))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.06))
+                    .cornerRadius(14)
 
                     // Level 1 Row
                     LevelRow(

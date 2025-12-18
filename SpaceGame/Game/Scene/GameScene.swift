@@ -22,6 +22,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     var level: GameLevel!
     var onLevelCompleted: (() -> Void)?
+    
+    // MARK: - Touch Steering
+    var steeringTouch: UITouch?
+    var steeringStartPoint: CGPoint = .zero
+    let steeringRadius: CGFloat = 80   // wie weit du "ziehen" kannst
+    let steeringDeadZone: CGFloat = 10 // kleine Bewegungen ignorieren
 
     // MARK: - Nodes
 
@@ -53,6 +59,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     let cameraNode = SKCameraNode()
     let cameraZoom: CGFloat = 1.5
     let bossCameraZoom: CGFloat = 2.1
+    
+    // MARK: - GodMode
+    var isGodModeEnabled: Bool = false
+
+    // MARK: - Player Death
+    var isPlayerDead: Bool = false
 
     // MARK: - Systems
 

@@ -22,7 +22,17 @@ extension GameScene {
 
         playerHP = max(0, playerHP - amount)
         updatePlayerHealthBar()
+        
+        // GodMode: kein Sterben
+        if isGodModeEnabled {
+            return
+        }
 
+        if playerHP <= 0 {
+            killPlayer()
+            return
+        }
+        
         startPlayerInvulnerabilityBlink()
     }
 
