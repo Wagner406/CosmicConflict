@@ -87,5 +87,10 @@ extension GameScene {
 
         lastPowerUpSpawnTime = 0
         particles.reset()
+        
+        // Timer reset
+        levelStartTime = 0
+        pauseStartTime = 0
+        pausedTimeAccumulated = 0
     }
 }

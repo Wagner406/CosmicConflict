@@ -170,6 +170,15 @@ extension GameScene {
         guard !isLevelCompleted else { return }
         isLevelCompleted = true
 
+        let elapsedTime = max(
+            0,
+            currentTimeForCollisions - levelStartTime - pausedTimeAccumulated
+        )
+
+        let score = Int((elapsedTime > 0 ? (300_000 / elapsedTime) : 0))
+        
+        HighscoreStore.submitRun(levelId: level.id, elapsedTime: elapsedTime, score: score)
+
         let label = SKLabelNode(fontNamed: "AvenirNext-Bold")
         label.text = "LEVEL COMPLETE"
         label.fontSize = 32
@@ -178,10 +187,21 @@ extension GameScene {
         label.position = CGPoint(x: 0, y: 0)
         label.alpha = 0
 
+        let minutes = Int(elapsedTime) / 60
+        let seconds = Int(elapsedTime) % 60
+
+        let resultLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+        resultLabel.fontSize = 18
+        resultLabel.fontColor = .white
+        resultLabel.zPosition = 310
+        resultLabel.position = CGPoint(x: 0, y: -50)
+        resultLabel.text = String(format: "Time: %d:%02d   Score: %d", minutes, seconds, score)
+
         hudNode.addChild(label)
+        hudNode.addChild(resultLabel)
+
         label.run(SKAction.fadeIn(withDuration: 0.5))
 
-        // Nach 5 Sekunden zurück ins Menü
         let wait = SKAction.wait(forDuration: 5.0)
         let callback = SKAction.run { [weak self] in
             self?.onLevelCompleted?()

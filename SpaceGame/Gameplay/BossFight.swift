@@ -406,7 +406,6 @@ extension GameScene {
 
         teardownBossHUD()
 
-        // ✅ Explosion stabil: auch Kamera-basiert
         let base = bossReferenceSize()
         let explosionWidth = clamp(base * 0.42, 180, 380)
 
@@ -422,8 +421,8 @@ extension GameScene {
         enemies.removeAll { $0 == boss }
         self.boss = nil
 
-        isLevelCompleted = true
-        showLevelCompleteBanner()
+        // ✅ NICHT vorher isLevelCompleted setzen
+        handleLevelCompleted()
 
         run(.sequence([
             .wait(forDuration: 3.0),

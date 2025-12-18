@@ -11,6 +11,12 @@ extension GameScene {
 
     override func update(_ currentTime: TimeInterval) {
         if isGamePaused { return }
+        
+        // Timer startet beim ersten Update-Frame
+        if levelStartTime == 0 {
+            levelStartTime = currentTime
+        }
+        
         guard let playerShip = playerShip, !isLevelCompleted else { return }
 
         vfx?.beginFrame()

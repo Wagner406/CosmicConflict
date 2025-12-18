@@ -12,6 +12,7 @@ extension GameScene {
     func pauseGame() {
         guard !isGamePaused else { return }
         isGamePaused = true
+        pauseStartTime = currentTimeForCollisions
 
         hud_showPauseOverlay()
 
@@ -27,6 +28,11 @@ extension GameScene {
     func resumeGame() {
         guard isGamePaused else { return }
         isGamePaused = false
+        
+        if pauseStartTime > 0 {
+            pausedTimeAccumulated += (currentTimeForCollisions - pauseStartTime)
+            pauseStartTime = 0
+        }
 
         hud_hidePauseOverlay()
 

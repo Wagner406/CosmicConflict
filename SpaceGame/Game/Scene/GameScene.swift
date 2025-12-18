@@ -154,6 +154,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     var bossPhase3UseShotgunNext: Bool = true
     var bossNextMinionSpawnTime: TimeInterval = 0
+    
+    // MARK: - Timer / Score
+
+    var levelStartTime: TimeInterval = 0
+    var pauseStartTime: TimeInterval = 0
+    var pausedTimeAccumulated: TimeInterval = 0
 
     // MARK: - Small Helpers (keep here)
 
