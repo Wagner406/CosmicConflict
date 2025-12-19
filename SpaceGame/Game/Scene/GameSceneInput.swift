@@ -2,7 +2,7 @@ import SpriteKit
 
 extension GameScene {
 
-    // MARK: - Touch Input (Joystick)
+    // MARK: - Touch Input (Joystick + Shoot)
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let t = touches.first else { return }
@@ -13,27 +13,63 @@ extension GameScene {
         if hudHandleTap(at: pScene) { return }
         if isGamePaused || isPlayerDead { return }
 
-        steeringTouch = t
+        // WICHTIG:
+        // Wenn Joystick bereits aktiv ist → JEDER weitere Touch schießt
+        if steeringTouch != nil {
+            shoot()
+            return
+        }
 
-        // ✅ wichtig: in HUD-Space umrechnen
-        let pHud = convert(pScene, to: hudNode)
-
-        showJoystick(at: pHud)
+        // Erster Finger: pending (Tap ODER Joystick)
+        pendingJoystickTouch = t
+        pendingJoystickStartHud = convert(pScene, to: hudNode)
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let steeringTouch,
-              touches.contains(steeringTouch) else { return }
+
+        // Wenn wir noch im "pending" Zustand sind: prüfen ob Drag
+        if let pending = pendingJoystickTouch, touches.contains(pending) {
+
+            let pScene = pending.location(in: self)
+            let pHud = convert(pScene, to: hudNode)
+
+            let dx = pHud.x - pendingJoystickStartHud.x
+            let dy = pHud.y - pendingJoystickStartHud.y
+            let dist = hypot(dx, dy)
+
+            // Noch nicht weit genug gezogen -> weiterhin pending (kein Joystick)
+            if dist < joystickDeadZone {
+                return
+            }
+
+            // Jetzt wird es ein echter Joystick-Finger
+            steeringTouch = pending
+            pendingJoystickTouch = nil
+
+            showJoystick(at: pendingJoystickStartHud)
+            updateJoystick(to: pHud)
+            return
+        }
+
+        // Normaler Joystick-Update (wenn aktiv)
+        guard let steeringTouch, touches.contains(steeringTouch) else { return }
 
         let pScene = steeringTouch.location(in: self)
         let pHud = convert(pScene, to: hudNode)
-
         updateJoystick(to: pHud)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let steeringTouch else { return }
-        if touches.contains(steeringTouch) {
+
+        // Pending-Tap endet ohne Drag -> SHOOT
+        if let pending = pendingJoystickTouch, touches.contains(pending) {
+            pendingJoystickTouch = nil
+            shoot()
+            return
+        }
+
+        // Joystick-Finger endet -> Joystick weg
+        if let steeringTouch, touches.contains(steeringTouch) {
             self.steeringTouch = nil
             hideJoystick()
         }
@@ -92,7 +128,7 @@ extension GameScene {
 
         joystickVector = CGVector(dx: nx, dy: ny)
 
-        // strength 0...1 (based on how far you pull, but capped)
+        // strength 0...1 (capped)
         joystickStrength = clampedDist / joystickRadius
 
         // knob stays inside radius

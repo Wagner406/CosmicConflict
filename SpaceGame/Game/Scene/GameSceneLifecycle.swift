@@ -10,6 +10,8 @@ extension GameScene {
     // MARK: - Lifecycle
 
     override func didMove(to view: SKView) {
+        view.isMultipleTouchEnabled = true
+        
         configurePhysics()
 
         if level == nil {

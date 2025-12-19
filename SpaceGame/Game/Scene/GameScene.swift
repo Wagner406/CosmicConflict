@@ -37,6 +37,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     var joystickStrength: CGFloat = 0   // 0...1
 
     var steeringTouch: UITouch?
+    
+    // MARK: - Joystick Tap-vs-Drag Helper
+    var pendingJoystickTouch: UITouch?
+    var pendingJoystickStartHud: CGPoint = .zero
 
     // MARK: - Nodes
 
